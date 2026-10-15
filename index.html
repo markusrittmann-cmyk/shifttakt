@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#c70b1d">
+  <title>ShiftTakt Leitstand</title>
+  <link rel="icon" href="assets/shifttakt-icon.png">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div id="loginView" class="login-shell">
+    <div class="login-card">
+      <img class="login-logo" src="assets/shifttakt-icon.png" alt="ShiftTakt">
+      <div class="eyebrow">ShiftTakt</div>
+      <h1>Leitstand Maintenance</h1>
+      <p class="muted">Schichtplanung, Team, Bereitschaft und Qualifikationen zentral am PC verwalten.</p>
+      <form id="loginForm" class="stack">
+        <label>Benutzer
+          <input id="loginUser" autocomplete="username" value="Leitung Maintenance" required>
+        </label>
+        <label>Passwort
+          <input id="loginPassword" type="password" autocomplete="current-password" required>
+        </label>
+        <button class="primary" type="submit">Anmelden</button>
+      </form>
+      <div id="loginMessage" class="message hidden"></div>
+      <div class="login-note">Der Leitstand nutzt dieselben ShiftTakt-Firmendaten wie die iOS-App.</div>
+    </div>
+  </div>
+
+  <div id="appView" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="brand-row">
+        <img src="assets/shifttakt-icon.png" alt="">
+        <div><strong>ShiftTakt</strong><span>Leitstand</span></div>
+      </div>
+      <nav id="nav">
+        <button data-page="dashboard" class="active">Übersicht</button>
+        <button data-page="schedule">Schichtplan</button>
+        <button data-page="yearplan">Jahresplan</button>
+        <button data-page="team">Team</button>
+        <button data-page="absences">Abwesenheiten</button>
+        <button data-page="oncall">Bereitschaft</button>
+        <button data-page="departments">Abteilungen</button>
+        <button data-page="users">Benutzer & Rollen</button>
+        <button data-page="export">Export</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div id="syncBadge" class="sync-badge">Nicht verbunden</div>
+        <button id="logoutBtn" class="ghost">Abmelden</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow" id="orgName">ShiftTakt</div>
+          <h2 id="pageTitle">Übersicht</h2>
+        </div>
+        <div class="topbar-actions">
+          <button id="refreshBtn" class="secondary">Aktualisieren</button>
+          <div class="user-chip"><strong id="displayName">Leitung Maintenance</strong><span id="roleLabel">Administrator</span></div>
+        </div>
+      </header>
+
+      <section id="page-dashboard" class="page active"></section>
+      <section id="page-schedule" class="page"></section>
+      <section id="page-yearplan" class="page"></section>
+      <section id="page-team" class="page"></section>
+      <section id="page-absences" class="page"></section>
+      <section id="page-oncall" class="page"></section>
+      <section id="page-departments" class="page"></section>
+      <section id="page-users" class="page"></section>
+      <section id="page-export" class="page"></section>
+    </main>
+  </div>
+
+  <div id="modal" class="modal hidden" aria-hidden="true">
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-card">
+      <div class="modal-head"><h3 id="modalTitle">Bearbeiten</h3><button class="icon-btn" data-close-modal>×</button></div>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
