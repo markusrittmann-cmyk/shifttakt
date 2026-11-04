@@ -160,13 +160,22 @@
   function renderSchedule(){
     const root=$('#page-schedule');if(!state.doc)return; const m=state.scheduleMonth;const days=monthDays(m);const departments=[...state.doc.departments].sort((a,b)=>a.name.localeCompare(b.name,'de'));const dep=state.scheduleDepartment;
     const emps=state.doc.employees.filter(e=>dep==='all'||e.departmentID===dep).sort((a,b)=>a.name.localeCompare(b.name,'de'));
+    const employeeScheduleRow=e=>`<tr class="schedule-employee-row"><td class="name"><strong>${esc(e.name)}</strong><span>${esc(deptById(e.departmentID)?.name||'')} · ${esc(e.roleTitle||'')}</span></td>${days.map(d=>{const c=codeFor(e,d);return `<td class="schedule-cell ${isWeekend(d)?'weekend-col':''}" data-emp="${e.id}" data-date="${localISO(d)}">${c?`<span class="shift-pill s-${c}">${c}</span>`:''}</td>`}).join('')}</tr>`;
+    const groupedScheduleRows=()=>{
+      if(dep!=='all') return emps.map(employeeScheduleRow).join('');
+      const knownDepartmentIds=new Set(departments.map(d=>d.id));
+      const groups=departments.map(d=>({name:d.name,employees:emps.filter(e=>e.departmentID===d.id)})).filter(g=>g.employees.length);
+      const withoutDepartment=emps.filter(e=>!knownDepartmentIds.has(e.departmentID));
+      if(withoutDepartment.length) groups.push({name:'Ohne Abteilung',employees:withoutDepartment});
+      return groups.map(g=>`<tr class="schedule-department-row"><td class="name"><strong>${esc(g.name)}</strong><span>${g.employees.length} Mitarbeiter</span></td><td colspan="${days.length}"></td></tr>${g.employees.map(employeeScheduleRow).join('')}`).join('');
+    };
     root.innerHTML=`<div class="toolbar">
       <button class="secondary" data-sched-prev>‹</button><strong>${new Intl.DateTimeFormat('de-DE',{month:'long',year:'numeric'}).format(m)}</strong><button class="secondary" data-sched-next>›</button>
       <select id="scheduleDept"><option value="all">Alle Abteilungen</option>${departments.map(d=>`<option value="${d.id}" ${dep===d.id?'selected':''}>${esc(d.name)}</option>`).join('')}</select>
       <button class="secondary" data-sched-today>Heute</button><span class="tag"><span class="shift-pill s-F" style="width:24px;height:24px">F</span> Früh</span><span class="tag"><span class="shift-pill s-S" style="width:24px;height:24px">S</span> Spät</span><span class="tag"><span class="shift-pill s-N" style="width:24px;height:24px">N</span> Nacht</span>
     </div>
     <div class="schedule-shell" style="margin-top:12px"><table class="schedule-grid"><thead><tr><th class="name">Mitarbeiter</th>${days.map(d=>`<th class="${isWeekend(d)?'weekend-col ':''}${sameDay(d,new Date())?'today-col':''}">${['So','Mo','Di','Mi','Do','Fr','Sa'][d.getDay()]}<br>${d.getDate()}</th>`).join('')}</tr></thead><tbody>
-      ${emps.map(e=>`<tr><td class="name"><strong>${esc(e.name)}</strong><span>${esc(deptById(e.departmentID)?.name||'')} · ${esc(e.roleTitle||'')}</span></td>${days.map(d=>{const c=codeFor(e,d);return `<td class="schedule-cell ${isWeekend(d)?'weekend-col':''}" data-emp="${e.id}" data-date="${localISO(d)}">${c?`<span class="shift-pill s-${c}">${c}</span>`:''}</td>`}).join('')}</tr>`).join('')}
+      ${groupedScheduleRows()}
     </tbody></table></div>`;
     $('[data-sched-prev]',root)?.addEventListener('click',()=>{state.scheduleMonth=addMonths(m,-1);renderSchedule()});
     $('[data-sched-next]',root)?.addEventListener('click',()=>{state.scheduleMonth=addMonths(m,1);renderSchedule()});
