@@ -186,14 +186,25 @@
 
   function openCellEditor(empId,iso){
     const e=employeeById(empId),d=parseISODate(iso),current=assignmentFor(empId,d),ab=absenceFor(empId,d); if(!e)return;
+    const scheduleShell=$('.schedule-shell','#page-schedule');
+    const scheduleView={left:scheduleShell?.scrollLeft||0,top:scheduleShell?.scrollTop||0};
+    const restoreScheduleView=()=>{
+      requestAnimationFrame(()=>{
+        const shell=$('.schedule-shell','#page-schedule');
+        if(shell){
+          shell.scrollLeft=scheduleView.left;
+          shell.scrollTop=scheduleView.top;
+        }
+      });
+    };
     showModal(`${e.name} · ${fmtDate(d)}`,`<div class="stack">
       ${ab?`<div class="warn-box">Abwesend: <strong>${esc(ab.type)}</strong>${ab.note?` · ${esc(ab.note)}`:''}</div>`:''}
       <button class="secondary" data-set-kind="Früh">Frühschicht</button><button class="secondary" data-set-kind="Spät">Spätschicht</button><button class="secondary" data-set-kind="Nacht">Nachtschicht</button>
       <button class="danger" data-clear-shift>Schichtzuweisung löschen</button>
       <div class="muted">Abwesenheiten werden im Bereich „Abwesenheiten“ gepflegt.</div>
     </div>`);
-    $$('[data-set-kind]','#modalBody').forEach(b=>b.addEventListener('click',async()=>{const kind=b.dataset.setKind;if(!e.allowedShifts?.includes(kind)){toast(`${e.name} ist nicht für ${kind} freigegeben.`,true);return;}if(ab){toast('Für diesen Tag ist eine Abwesenheit eingetragen.',true);return;}await saveMutation('Schicht gespeichert.',doc=>{doc.assignments=doc.assignments.filter(a=>!(a.employeeID===empId&&dayKey(appleDecode(a.date))===iso));doc.assignments.push({id:uuid(),date:appleEncode(d),employeeID:empId,departmentID:e.departmentID,kind,onCallShift:null,onCallSlot:null});});closeModal();}));
-    $('[data-clear-shift]','#modalBody').addEventListener('click',async()=>{await saveMutation('Zuweisung entfernt.',doc=>{doc.assignments=doc.assignments.filter(a=>!(a.employeeID===empId&&dayKey(appleDecode(a.date))===iso));});closeModal();});
+    $$('[data-set-kind]','#modalBody').forEach(b=>b.addEventListener('click',async()=>{const kind=b.dataset.setKind;if(!e.allowedShifts?.includes(kind)){toast(`${e.name} ist nicht für ${kind} freigegeben.`,true);return;}if(ab){toast('Für diesen Tag ist eine Abwesenheit eingetragen.',true);return;}await saveMutation('Schicht gespeichert.',doc=>{doc.assignments=doc.assignments.filter(a=>!(a.employeeID===empId&&dayKey(appleDecode(a.date))===iso));doc.assignments.push({id:uuid(),date:appleEncode(d),employeeID:empId,departmentID:e.departmentID,kind,onCallShift:null,onCallSlot:null});});restoreScheduleView();closeModal();}));
+    $('[data-clear-shift]','#modalBody').addEventListener('click',async()=>{await saveMutation('Zuweisung entfernt.',doc=>{doc.assignments=doc.assignments.filter(a=>!(a.employeeID===empId&&dayKey(appleDecode(a.date))===iso));});restoreScheduleView();closeModal();});
   }
 
   function renderTeam(){
