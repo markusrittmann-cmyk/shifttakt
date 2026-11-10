@@ -268,11 +268,82 @@
 
   // MARK: Year planner (port of Build 30 principles)
   function renderYearPlan(){
-    const root=$('#page-yearplan');if(!state.doc)return;const year=new Date().getFullYear();const depts=state.doc.departments;
-    root.innerHTML=`<div class="card"><div class="form-grid"><label class="field">Abteilung<select id="planDept"><option value="">Abteilung wählen</option>${depts.map(d=>`<option value="${d.id}">${esc(d.name)}</option>`).join('')}</select></label><label class="field">Planjahr<input id="planYear" type="number" value="${year}" min="2020" max="2100"></label></div><div style="margin-top:14px"><button class="primary" id="makePlans">Drei Jahrespläne berechnen</button></div></div><div id="planResults" class="grid" style="margin-top:16px"></div>`;$('#makePlans',root).onclick=()=>{const deptId=$('#planDept',root).value;const y=Number($('#planYear',root).value);if(!deptId){toast('Bitte zuerst eine Abteilung wählen.',true);return;}const strategies=['balanced','qualificationBalanced','fewChanges'];state.planProposals=strategies.map(s=>generateYearProposal(deptId,y,s));renderPlanResults();};
+    const root=$('#page-yearplan');if(!state.doc)return;
+    const year=new Date().getFullYear(),depts=state.doc.departments;
+    const ruleOptions=[
+      'Ausgewogen verteilen',
+      'Passend zur Wochenschicht',
+      'Immer aus fester Schicht',
+      'Wiederholendes Schichtmuster'
+    ];
+    root.innerHTML=`<div class="card">
+      <div class="form-grid">
+        <label class="field">Abteilung<select id="planDept"><option value="">Abteilung wählen</option>${depts.map(d=>`<option value="${d.id}">${esc(d.name)}</option>`).join('')}</select></label>
+        <label class="field">Planjahr<input id="planYear" type="number" value="${year}" min="2020" max="2100"></label>
+        <label class="field full">Bereitschaftslogik<select id="planOnCallRule">${ruleOptions.map(r=>`<option value="${esc(r)}">${esc(r)}</option>`).join('')}</select></label>
+        <label class="field" id="planOnCallFixedWrap" style="display:none">Feste Quellschicht<select id="planOnCallFixed"><option>Früh</option><option>Spät</option><option>Nacht</option></select></label>
+        <div class="field full" id="planOnCallPatternWrap" style="display:none">
+          <span style="font-weight:700">3-Wochen-Muster</span>
+          <div class="form-grid" style="margin-top:8px">
+            ${[1,2,3].map((n,i)=>`<label class="field">Woche ${n}<select id="planOnCallPattern${i}"><option>Früh</option><option>Spät</option><option>Nacht</option></select></label>`).join('')}
+          </div>
+          <div class="muted" style="margin-top:6px">Das Muster wiederholt sich nach Woche 3 automatisch.</div>
+        </div>
+        <div class="field full"><div id="planOnCallHint" class="muted"></div></div>
+      </div>
+      <div style="margin-top:14px"><button class="primary" id="makePlans">Drei Jahrespläne berechnen</button></div>
+    </div>
+    <div id="planResults" class="grid" style="margin-top:16px"></div>`;
+
+    const ruleHint=rule=>{
+      if(rule==='Passend zur Wochenschicht')return 'Beim Modell „Je Schicht“ kommt jede Bereitschaft strikt aus derselben Wochenschicht. Ist dort niemand verfügbar, bleibt sie offen.';
+      if(rule==='Immer aus fester Schicht')return 'Die Bereitschaft wird strikt mit Mitarbeitern aus der gewählten Wochenschicht besetzt.';
+      if(rule==='Wiederholendes Schichtmuster')return 'Die Quellschicht folgt dem eingestellten 3-Wochen-Muster. Ist in der geforderten Schicht niemand verfügbar, bleibt die Bereitschaft offen.';
+      return 'Bereitschaften werden möglichst gleichmäßig verteilt. Beim 2×10-h-Modell bleibt die bisherige Bevorzugung der Frühschicht erhalten.';
+    };
+    const syncOnCallControls=()=>{
+      const rule=$('#planOnCallRule',root)?.value||'Ausgewogen verteilen';
+      $('#planOnCallFixedWrap',root).style.display=rule==='Immer aus fester Schicht'?'':'none';
+      $('#planOnCallPatternWrap',root).style.display=rule==='Wiederholendes Schichtmuster'?'':'none';
+      $('#planOnCallHint',root).textContent=ruleHint(rule);
+    };
+    const loadDepartmentDefaults=()=>{
+      const d=deptById($('#planDept',root)?.value);
+      const validRule=ruleOptions.includes(d?.weekendOnCallAssignmentRule)?d.weekendOnCallAssignmentRule:'Ausgewogen verteilen';
+      $('#planOnCallRule',root).value=validRule;
+      $('#planOnCallFixed',root).value=['Früh','Spät','Nacht'].includes(d?.weekendOnCallFixedShift)?d.weekendOnCallFixedShift:'Früh';
+      const pattern=Array.isArray(d?.weekendOnCallPattern)&&d.weekendOnCallPattern.length===3?d.weekendOnCallPattern:['Früh','Spät','Nacht'];
+      pattern.forEach((v,i)=>{const el=$(`#planOnCallPattern${i}`,root);if(el)el.value=['Früh','Spät','Nacht'].includes(v)?v:['Früh','Spät','Nacht'][i];});
+      syncOnCallControls();
+    };
+
+    $('#planDept',root).addEventListener('change',loadDepartmentDefaults);
+    $('#planOnCallRule',root).addEventListener('change',syncOnCallControls);
+    syncOnCallControls();
+
+    $('#makePlans',root).onclick=()=>{
+      const deptId=$('#planDept',root).value,y=Number($('#planYear',root).value);
+      if(!deptId){toast('Bitte zuerst eine Abteilung wählen.',true);return;}
+      const policy={
+        rule:$('#planOnCallRule',root).value,
+        fixedShift:$('#planOnCallFixed',root).value,
+        pattern:[0,1,2].map(i=>$(`#planOnCallPattern${i}`,root).value)
+      };
+      state.planOnCallPolicy=policy;
+      const strategies=['balanced','qualificationBalanced','fewChanges'];
+      state.planProposals=strategies.map(s=>generateYearProposal(deptId,y,s,policy));
+      renderPlanResults();
+    };
   }
-  function renderPlanResults(){const root=$('#planResults');if(!root)return;const names={balanced:'3-2-1 ausgewogen',qualificationBalanced:'3-2-1 + Qualifikation',fewChanges:'Wenig Wechsel'};root.innerHTML=state.planProposals.map((p,i)=>`<div class="plan-card"><h3>${names[p.strategy]}</h3><div class="plan-stats"><div class="plan-stat"><strong>${p.assignments.length}</strong><span>Einteilungen</span></div><div class="plan-stat ${p.gaps?'bad':''}"><strong>${p.gaps}</strong><span>offen</span></div><div class="plan-stat"><strong>${p.fairnessSpread}</strong><span>Gesamt Δ</span></div><div class="plan-stat"><strong>${p.weekendSpread}</strong><span>WE Δ</span></div><div class="plan-stat"><strong>${p.shiftChanges}</strong><span>Wechsel</span></div></div>${p.blockedByQualification?`<div class="critical-box">${p.blockedByQualification} Besetzungen scheitern an abgelaufenen Pflichtqualifikationen.</div>`:''}<div style="margin-top:12px"><button class="primary" data-apply-plan="${i}">Diesen Jahresplan übernehmen</button></div></div>`).join('');$$('[data-apply-plan]',root).forEach(b=>b.onclick=()=>applyPlan(Number(b.dataset.applyPlan)));
+
+  function renderPlanResults(){
+    const root=$('#planResults');if(!root)return;
+    const names={balanced:'3-2-1 ausgewogen',qualificationBalanced:'3-2-1 + Qualifikation',fewChanges:'Wenig Wechsel'};
+    const policy=state.planOnCallPolicy;
+    root.innerHTML=`${policy?`<div class="card"><strong>Bereitschaft:</strong> ${esc(policy.rule)}${policy.rule==='Immer aus fester Schicht'?` · ${esc(policy.fixedShift)}`:''}${policy.rule==='Wiederholendes Schichtmuster'?` · ${policy.pattern.map(esc).join(' → ')}`:''}</div>`:''}${state.planProposals.map((p,i)=>`<div class="plan-card"><h3>${names[p.strategy]}</h3><div class="plan-stats"><div class="plan-stat"><strong>${p.assignments.length}</strong><span>Einteilungen</span></div><div class="plan-stat ${p.gaps?'bad':''}"><strong>${p.gaps}</strong><span>offen</span></div><div class="plan-stat"><strong>${p.fairnessSpread}</strong><span>Gesamt Δ</span></div><div class="plan-stat"><strong>${p.weekendSpread}</strong><span>WE Δ</span></div><div class="plan-stat"><strong>${p.shiftChanges}</strong><span>Wechsel</span></div></div>${p.blockedByQualification?`<div class="critical-box">${p.blockedByQualification} Besetzungen scheitern an abgelaufenen Pflichtqualifikationen.</div>`:''}<div style="margin-top:12px"><button class="primary" data-apply-plan="${i}">Diesen Jahresplan übernehmen</button></div></div>`).join('')}`;
+    $$('[data-apply-plan]',root).forEach(b=>b.onclick=()=>applyPlan(Number(b.dataset.applyPlan)));
   }
+
   function effectiveQualLevel(e){return Math.min(4,Math.max(1,e.qualificationLevel||3));}
   function employeeMatchesHalls(e,d){const req=new Set((d.halls||[]).map(lower));if(!req.size)return true;const h=new Set((e.halls||[]).map(lower));return [...req].some(x=>h.has(x));}
   function qualificationValid(e,date){return (e.qualifications||[]).filter(q=>q.requiredForPlanning).every(q=>{const due=dueDate(q);return !due||startOfDay(due)>=startOfDay(date);});}
@@ -281,26 +352,97 @@
   function weeksInYear(year){const map=new Map();let d=new Date(year,0,1),end=new Date(year+1,0,1);while(d<end){const x=startOfDay(d),weekday=x.getDay(),daysFromMonday=(weekday+6)%7,monday=addDays(x,-daysFromMonday),k=dayKey(monday);if(!map.has(k))map.set(k,[]);map.get(k).push(x);d=addDays(d,1);}return [...map.entries()].sort((a,b)=>a[0].localeCompare(b[0])).map(([k,days])=>({monday:parseISODate(k),days}));}
   function rotationKind(e,weekIndex,team,activeKinds){const canonical=['Nacht','Spät','Früh'];const sorted=[...team].sort((a,b)=>a.name.localeCompare(b.name,'de'));const offset=Math.max(0,sorted.findIndex(x=>x.id===e.id));const raw=canonical[(weekIndex+offset)%3];if(activeKinds.has(raw))return raw;if(activeKinds.has('Früh'))return 'Früh';if(activeKinds.has('Spät'))return 'Spät';if(activeKinds.has('Nacht'))return 'Nacht';return 'Früh';}
   function spread(vals){return vals.length?Math.max(...vals)-Math.min(...vals):0;}
-  function generateYearProposal(deptId,year,strategy){
-    const department=clone(deptById(deptId)),team=employeesForDept(deptId).map(clone),weeks=weeksInYear(year),doc=state.doc;const generated=[],total={},shiftCount={},weekendCount={},prev={},gaps=[];let blocked=0,changes=0;team.forEach(e=>{total[e.id]=0;shiftCount[e.id]={};weekendCount[e.id]=0;});
-    const hasAbs=(id,d)=>hasAbsenceInDoc(doc,id,d);const activeKinds=new Set((department.requirements||[]).filter(r=>r.requiredStaff>0).map(r=>r.shift));const avg=team.length?team.reduce((s,e)=>s+effectiveQualLevel(e),0)/team.length:3;
-    weeks.forEach((week,weekIndex)=>{const weekdays=week.days.filter(d=>d.getDay()>=1&&d.getDay()<=5),weekend=week.days.filter(d=>isWeekend(d));const occupied=new Set(),levelSum={},levelCount={},earlyThisWeek=new Set();
+
+  function generateYearProposal(deptId,year,strategy,onCallPolicy){
+    const department=clone(deptById(deptId)),team=employeesForDept(deptId).map(clone),weeks=weeksInYear(year),doc=state.doc;
+    const policy=onCallPolicy||{
+      rule:department.weekendOnCallAssignmentRule||'Ausgewogen verteilen',
+      fixedShift:department.weekendOnCallFixedShift||'Früh',
+      pattern:Array.isArray(department.weekendOnCallPattern)&&department.weekendOnCallPattern.length===3?department.weekendOnCallPattern:['Früh','Spät','Nacht']
+    };
+    const generated=[],total={},shiftCount={},weekendCount={},prev={},gaps=[];let blocked=0,changes=0;
+    team.forEach(e=>{total[e.id]=0;shiftCount[e.id]={};weekendCount[e.id]=0;});
+    const hasAbs=(id,d)=>hasAbsenceInDoc(doc,id,d);
+    const activeKinds=new Set((department.requirements||[]).filter(r=>r.requiredStaff>0).map(r=>r.shift));
+    const avg=team.length?team.reduce((s,e)=>s+effectiveQualLevel(e),0)/team.length:3;
+
+    weeks.forEach((week,weekIndex)=>{
+      const weekdays=week.days.filter(d=>d.getDay()>=1&&d.getDay()<=5),weekend=week.days.filter(d=>isWeekend(d));
+      const occupied=new Set(),levelSum={},levelCount={},shiftThisWeek={Früh:new Set(),Spät:new Set(),Nacht:new Set()};
       const eligibleCount=(shift)=>team.filter(e=>e.status==='Verfügbar'&&(e.allowedShifts||[]).includes(shift)&&employeeMatchesHalls(e,department)&&!occupied.has(e.id)&&weekdays.every(d=>qualificationValid(e,d))).length;
       const reqs=(department.requirements||[]).filter(r=>r.requiredStaff>0).sort((a,b)=>eligibleCount(a.shift)-eligibleCount(b.shift));
+
       for(const r of reqs){for(let n=0;n<r.requiredStaff;n++){
-        const base=team.filter(e=>e.status==='Verfügbar'&&(e.allowedShifts||[]).includes(r.shift)&&employeeMatchesHalls(e,department)&&!occupied.has(e.id));const qual=base.filter(e=>weekdays.every(d=>qualificationValid(e,d)));if(!qual.length){const wasBlocked=base.length&&base.some(e=>weekdays.some(d=>!qualificationValid(e,d)));if(wasBlocked)blocked+=weekdays.length;gaps.push(...weekdays.map(d=>({date:d,kind:r.shift,reason:wasBlocked?'qualification':'noeligible'})));continue;}
+        const base=team.filter(e=>e.status==='Verfügbar'&&(e.allowedShifts||[]).includes(r.shift)&&employeeMatchesHalls(e,department)&&!occupied.has(e.id));
+        const qual=base.filter(e=>weekdays.every(d=>qualificationValid(e,d)));
+        if(!qual.length){const wasBlocked=base.length&&base.some(e=>weekdays.some(d=>!qualificationValid(e,d)));if(wasBlocked)blocked+=weekdays.length;gaps.push(...weekdays.map(d=>({date:d,kind:r.shift,reason:wasBlocked?'qualification':'noeligible'})));continue;}
         const fully=qual.filter(e=>weekdays.every(d=>!hasAbs(e.id,d))),pool=fully.length?fully:qual;
         const score=e=>{const absent=weekdays.filter(d=>hasAbs(e.id,d)).length,same=shiftCount[e.id][r.shift]||0,sw=prev[e.id]&&prev[e.id]!==r.shift?1:0,desired=rotationKind(e,weekIndex,team,activeKinds),rotation=r.shift===desired?0:900,projected=((levelSum[r.shift]||0)+effectiveQualLevel(e))/((levelCount[r.shift]||0)+1),qbal=Math.round(Math.abs(projected-avg)*250),valid=(e.qualifications||[]).filter(q=>{const due=dueDate(q);return !due||due>=weekdays[0]}).length;if(strategy==='balanced')return rotation+total[e.id]*30+same*4+absent*1000+sw*12;if(strategy==='qualificationBalanced')return rotation+qbal+total[e.id]*20+absent*1000+sw*10;return total[e.id]*55+same*3+absent*1000+sw*250-valid*0;};
-        pool.sort((a,b)=>score(a)-score(b)||a.name.localeCompare(b.name,'de'));const chosen=pool[0];if(prev[chosen.id]&&prev[chosen.id]!==r.shift)changes++;prev[chosen.id]=r.shift;occupied.add(chosen.id);if(r.shift==='Früh')earlyThisWeek.add(chosen.id);levelSum[r.shift]=(levelSum[r.shift]||0)+effectiveQualLevel(chosen);levelCount[r.shift]=(levelCount[r.shift]||0)+1;
-        for(const date of weekdays){if(hasAbs(chosen.id,date)){gaps.push({date,kind:r.shift,reason:'noeligible'});continue;}generated.push({id:uuid(),date:appleEncode(date),employeeID:chosen.id,departmentID:deptId,kind:r.shift,onCallShift:null,onCallSlot:null});total[chosen.id]++;shiftCount[chosen.id][r.shift]=(shiftCount[chosen.id][r.shift]||0)+1;}
+        pool.sort((a,b)=>score(a)-score(b)||a.name.localeCompare(b.name,'de'));
+        const chosen=pool[0];
+        if(prev[chosen.id]&&prev[chosen.id]!==r.shift)changes++;
+        prev[chosen.id]=r.shift;occupied.add(chosen.id);shiftThisWeek[r.shift]?.add(chosen.id);
+        levelSum[r.shift]=(levelSum[r.shift]||0)+effectiveQualLevel(chosen);levelCount[r.shift]=(levelCount[r.shift]||0)+1;
+        for(const date of weekdays){
+          if(hasAbs(chosen.id,date)){gaps.push({date,kind:r.shift,reason:'noeligible'});continue;}
+          generated.push({id:uuid(),date:appleEncode(date),employeeID:chosen.id,departmentID:deptId,kind:r.shift,onCallShift:null,onCallSlot:null});
+          total[chosen.id]++;shiftCount[chosen.id][r.shift]=(shiftCount[chosen.id][r.shift]||0)+1;
+        }
       }}
-      if(department.weekendOnCallEnabled&&weekend.length){const occ=new Set(),mode=department.weekendOnCallMode||'Je Schicht';const blocks=[];if(mode==='Ganzes Wochenende'){for(let i=0;i<Math.max(1,department.wholeWeekendOnCallRequired||1);i++)blocks.push({shift:null,slot:null,preferred:null});}else if(mode==='2 × 10 Stunden'){for(const slot of ['06:00–16:00','16:00–02:00'])blocks.push({shift:null,slot,preferred:earlyThisWeek});}else{for(const r of department.requirements||[])for(let i=0;i<(r.weekendOnCallRequired||0);i++)blocks.push({shift:r.shift,slot:null,preferred:null});}
-        for(const block of blocks){let base=team.filter(e=>e.status==='Verfügbar'&&e.canTakeWeekendOnCall!==false&&employeeMatchesHalls(e,department)&&!occ.has(e.id));if(block.preferred){const p=base.filter(e=>block.preferred.has(e.id));if(p.length)base=p;}const qual=base.filter(e=>weekend.every(d=>qualificationValid(e,d)));if(!qual.length){const wasBlocked=base.length&&base.some(e=>weekend.some(d=>!qualificationValid(e,d)));if(wasBlocked)blocked+=weekend.length;gaps.push(...weekend.map(d=>({date:d,kind:'Bereitschaft',reason:wasBlocked?'qualification':'noeligible'})));continue;}const fully=qual.filter(e=>weekend.every(d=>!hasAbs(e.id,d))),pool=fully.length?fully:qual;const score=e=>weekendCount[e.id]*400+total[e.id]*5;pool.sort((a,b)=>score(a)-score(b)||a.name.localeCompare(b.name,'de'));const chosen=pool[0];occ.add(chosen.id);weekendCount[chosen.id]++;for(const date of weekend){if(hasAbs(chosen.id,date)){gaps.push({date,kind:'Bereitschaft',reason:'noeligible'});continue;}generated.push({id:uuid(),date:appleEncode(date),employeeID:chosen.id,departmentID:deptId,kind:'Bereitschaft',onCallShift:block.shift,onCallSlot:block.slot});total[chosen.id]++;shiftCount[chosen.id]['Bereitschaft']=(shiftCount[chosen.id]['Bereitschaft']||0)+1;}}
+
+      if(department.weekendOnCallEnabled&&weekend.length){
+        const occ=new Set(),mode=department.weekendOnCallMode||'Je Schicht',blocks=[];
+        const strictIds=targetShift=>{
+          if(policy.rule==='Passend zur Wochenschicht')return targetShift?new Set(shiftThisWeek[targetShift]||[]):null;
+          if(policy.rule==='Immer aus fester Schicht')return new Set(shiftThisWeek[policy.fixedShift]||[]);
+          if(policy.rule==='Wiederholendes Schichtmuster'){
+            const pattern=Array.isArray(policy.pattern)&&policy.pattern.length===3?policy.pattern:['Früh','Spät','Nacht'];
+            return new Set(shiftThisWeek[pattern[weekIndex%pattern.length]]||[]);
+          }
+          return null;
+        };
+
+        if(mode==='Ganzes Wochenende'){
+          for(let i=0;i<Math.max(1,department.wholeWeekendOnCallRequired||1);i++)blocks.push({shift:null,slot:null,preferred:null,required:strictIds(null)});
+        }else if(mode==='2 × 10 Stunden'){
+          for(const slot of ['06:00–16:00','16:00–02:00'])blocks.push({
+            shift:null,slot,
+            preferred:policy.rule==='Ausgewogen verteilen'?shiftThisWeek.Früh:null,
+            required:strictIds(null)
+          });
+        }else{
+          for(const r of department.requirements||[])for(let i=0;i<(r.weekendOnCallRequired||0);i++)blocks.push({shift:r.shift,slot:null,preferred:null,required:strictIds(r.shift)});
+        }
+
+        for(const block of blocks){
+          let base=team.filter(e=>e.status==='Verfügbar'&&e.canTakeWeekendOnCall!==false&&employeeMatchesHalls(e,department)&&!occ.has(e.id));
+          if(block.required instanceof Set)base=base.filter(e=>block.required.has(e.id));
+          if(block.preferred){const p=base.filter(e=>block.preferred.has(e.id));if(p.length)base=p;}
+          const qual=base.filter(e=>weekend.every(d=>qualificationValid(e,d)));
+          if(!qual.length){const wasBlocked=base.length&&base.some(e=>weekend.some(d=>!qualificationValid(e,d)));if(wasBlocked)blocked+=weekend.length;gaps.push(...weekend.map(d=>({date:d,kind:'Bereitschaft',reason:wasBlocked?'qualification':'noeligible'})));continue;}
+          const fully=qual.filter(e=>weekend.every(d=>!hasAbs(e.id,d))),pool=fully.length?fully:qual;
+          const score=e=>weekendCount[e.id]*400+total[e.id]*5;
+          pool.sort((a,b)=>score(a)-score(b)||a.name.localeCompare(b.name,'de'));
+          const chosen=pool[0];occ.add(chosen.id);weekendCount[chosen.id]++;
+          for(const date of weekend){
+            if(hasAbs(chosen.id,date)){gaps.push({date,kind:'Bereitschaft',reason:'noeligible'});continue;}
+            generated.push({id:uuid(),date:appleEncode(date),employeeID:chosen.id,departmentID:deptId,kind:'Bereitschaft',onCallShift:block.shift,onCallSlot:block.slot});
+            total[chosen.id]++;shiftCount[chosen.id]['Bereitschaft']=(shiftCount[chosen.id]['Bereitschaft']||0)+1;
+          }
+        }
       }
     });
     return {strategy,year,departmentID:deptId,assignments:generated,gaps:gaps.length,blockedByQualification:blocked,fairnessSpread:spread(team.map(e=>total[e.id]||0)),weekendSpread:spread(team.map(e=>weekendCount[e.id]||0)),shiftChanges:changes};
   }
-  async function applyPlan(index){const p=state.planProposals[index];if(!p||!confirm('Dieser Jahresplan ersetzt alle bestehenden Schicht- und Bereitschaftszuweisungen dieser Abteilung für das gewählte Jahr. Fortfahren?'))return;await saveMutation('Jahresplan übernommen.',doc=>{doc.assignments=doc.assignments.filter(a=>!(a.departmentID===p.departmentID&&appleDecode(a.date).getFullYear()===p.year));doc.assignments.push(...clone(p.assignments));});}
+
+  async function applyPlan(index){
+    const p=state.planProposals[index];
+    if(!p||!confirm('Dieser Jahresplan ersetzt alle bestehenden Schicht- und Bereitschaftszuweisungen dieser Abteilung für das gewählte Jahr. Fortfahren?'))return;
+    await saveMutation('Jahresplan übernommen.',doc=>{
+      doc.assignments=doc.assignments.filter(a=>!(a.departmentID===p.departmentID&&appleDecode(a.date).getFullYear()===p.year));
+      doc.assignments.push(...clone(p.assignments));
+    });
+  }
 
   function renderExport(){const root=$('#page-export');if(!state.doc)return;root.innerHTML=`<div class="grid cols-2"><div class="card"><h3>Schichtplan drucken / PDF</h3><p class="muted">Öffnet die Druckansicht des aktuell gewählten Monats. Im Browser kann anschließend „Als PDF sichern“ gewählt werden.</p><button class="primary" id="printPlan">Druckansicht öffnen</button></div><div class="card"><h3>Monat als CSV</h3><p class="muted">Exportiert den aktuell im Schichtplan gewählten Monat als Tabelle.</p><button class="primary" id="csvPlan">CSV herunterladen</button></div></div>`;$('#printPlan',root).onclick=()=>{switchPage('schedule');setTimeout(()=>window.print(),150)};$('#csvPlan',root).onclick=exportCSV;}
   function exportCSV(){const days=monthDays(state.scheduleMonth),emps=state.doc.employees.filter(e=>state.scheduleDepartment==='all'||e.departmentID===state.scheduleDepartment).sort((a,b)=>a.name.localeCompare(b.name,'de'));const rows=[['Mitarbeiter','Abteilung',...days.map(localISO)]];for(const e of emps)rows.push([e.name,deptById(e.departmentID)?.name||'',...days.map(d=>codeFor(e,d))]);const csv=rows.map(r=>r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(';')).join('\n');const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`ShiftTakt_${state.scheduleMonth.getFullYear()}_${pad(state.scheduleMonth.getMonth()+1)}.csv`;a.click();URL.revokeObjectURL(a.href);}
