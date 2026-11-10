@@ -390,6 +390,25 @@
         }
       }}
 
+      // Alle zusätzlichen verfügbaren Mitarbeitenden oberhalb der Mindestbesetzung
+      // werden automatisch der Frühschicht zugeordnet statt leer zu bleiben.
+      const surplusEarly=team
+        .filter(e=>e.status==='Verfügbar'&&(e.allowedShifts||[]).includes('Früh')&&employeeMatchesHalls(e,department)&&!occupied.has(e.id)&&weekdays.every(d=>qualificationValid(e,d))&&weekdays.some(d=>!hasAbs(e.id,d)))
+        .sort((a,b)=>a.name.localeCompare(b.name,'de'));
+
+      for(const chosen of surplusEarly){
+        if(prev[chosen.id]&&prev[chosen.id]!=='Früh')changes++;
+        prev[chosen.id]='Früh';
+        occupied.add(chosen.id);
+        shiftThisWeek.Früh.add(chosen.id);
+        for(const date of weekdays){
+          if(hasAbs(chosen.id,date))continue;
+          generated.push({id:uuid(),date:appleEncode(date),employeeID:chosen.id,departmentID:deptId,kind:'Früh',onCallShift:null,onCallSlot:null});
+          total[chosen.id]++;
+          shiftCount[chosen.id].Früh=(shiftCount[chosen.id].Früh||0)+1;
+        }
+      }
+
       if(department.weekendOnCallEnabled&&weekend.length){
         const occ=new Set(),mode=department.weekendOnCallMode||'Je Schicht',blocks=[];
         const strictIds=targetShift=>{
