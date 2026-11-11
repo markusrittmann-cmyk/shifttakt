@@ -350,6 +350,37 @@
   function hasAbsenceInDoc(doc,eid,date){return !!absenceForDoc(doc,eid,date);}
   function absenceForDoc(doc,eid,date){const d=startOfDay(date);return (doc.absences||[]).find(a=>a.employeeID===eid&&d>=startOfDay(appleDecode(a.startDate))&&d<=startOfDay(appleDecode(a.endDate)));}
   function weeksInYear(year){const map=new Map();let d=new Date(year,0,1),end=new Date(year+1,0,1);while(d<end){const x=startOfDay(d),weekday=x.getDay(),daysFromMonday=(weekday+6)%7,monday=addDays(x,-daysFromMonday),k=dayKey(monday);if(!map.has(k))map.set(k,[]);map.get(k).push(x);d=addDays(d,1);}return [...map.entries()].sort((a,b)=>a[0].localeCompare(b[0])).map(([k,days])=>({monday:parseISODate(k),days}));}
+  function buildCyclicRotationPlan(department,team){
+    const shifts=['Nacht','Spät','Früh'];
+    const planningTeam=team.filter(e=>e.status==='Verfügbar');
+    const fixed=planningTeam
+      .map(e=>({employee:e,allowed:[...new Set((e.allowedShifts||[]).filter(s=>shifts.includes(s)))]}))
+      .filter(x=>x.allowed.length===1)
+      .map(x=>({employee:x.employee,shift:x.allowed[0]}));
+    const fixedIds=new Set(fixed.map(x=>x.employee.id));
+    const rotating=planningTeam
+      .filter(e=>!fixedIds.has(e.id))
+      .sort((a,b)=>a.name.localeCompare(b.name,'de'));
+
+    const req=shift=>department.requirements?.find(r=>r.shift===shift)?.requiredStaff||0;
+    const target={Früh:req('Früh'),Spät:req('Spät'),Nacht:req('Nacht')};
+    const minimum=target.Früh+target.Spät+target.Nacht;
+    target.Früh+=Math.max(0,planningTeam.length-minimum);
+    for(const item of fixed) target[item.shift]=(target[item.shift]||0)-1;
+
+    if(shifts.some(s=>(target[s]||0)<0)) return null;
+    const needed=shifts.filter(s=>(target[s]||0)>0);
+    if(rotating.some(e=>needed.some(s=>!(e.allowedShifts||[]).includes(s)))) return null;
+
+    const cycle=[
+      ...Array(target.Nacht||0).fill('Nacht'),
+      ...Array(target.Spät||0).fill('Spät'),
+      ...Array(target.Früh||0).fill('Früh')
+    ];
+    if(cycle.length!==rotating.length) return null;
+    return {fixed,rotating,cycle};
+  }
+
   function rotationKind(e,weekIndex,team,activeKinds){const canonical=['Nacht','Spät','Früh'];const sorted=[...team].sort((a,b)=>a.name.localeCompare(b.name,'de'));const offset=Math.max(0,sorted.findIndex(x=>x.id===e.id));const raw=canonical[(weekIndex+offset)%3];if(activeKinds.has(raw))return raw;if(activeKinds.has('Früh'))return 'Früh';if(activeKinds.has('Spät'))return 'Spät';if(activeKinds.has('Nacht'))return 'Nacht';return 'Früh';}
   function spread(vals){return vals.length?Math.max(...vals)-Math.min(...vals):0;}
 
@@ -365,50 +396,89 @@
     const hasAbs=(id,d)=>hasAbsenceInDoc(doc,id,d);
     const activeKinds=new Set((department.requirements||[]).filter(r=>r.requiredStaff>0).map(r=>r.shift));
     const avg=team.length?team.reduce((s,e)=>s+effectiveQualLevel(e),0)/team.length:3;
+    const cyclicPlan=buildCyclicRotationPlan(department,team);
 
     weeks.forEach((week,weekIndex)=>{
       const weekdays=week.days.filter(d=>d.getDay()>=1&&d.getDay()<=5),weekend=week.days.filter(d=>isWeekend(d));
       const occupied=new Set(),levelSum={},levelCount={},shiftThisWeek={Früh:new Set(),Spät:new Set(),Nacht:new Set()};
-      const eligibleCount=(shift)=>team.filter(e=>e.status==='Verfügbar'&&(e.allowedShifts||[]).includes(shift)&&employeeMatchesHalls(e,department)&&!occupied.has(e.id)&&weekdays.every(d=>qualificationValid(e,d))).length;
-      const reqs=(department.requirements||[]).filter(r=>r.requiredStaff>0).sort((a,b)=>eligibleCount(a.shift)-eligibleCount(b.shift));
+      if(cyclicPlan){
+        const planned=[
+          ...cyclicPlan.fixed,
+          ...(cyclicPlan.cycle.length?cyclicPlan.rotating.map((employee,offset)=>({
+            employee,
+            shift:cyclicPlan.cycle[(weekIndex+offset)%cyclicPlan.cycle.length]
+          })) : [])
+        ];
 
-      for(const r of reqs){for(let n=0;n<r.requiredStaff;n++){
-        const base=team.filter(e=>e.status==='Verfügbar'&&(e.allowedShifts||[]).includes(r.shift)&&employeeMatchesHalls(e,department)&&!occupied.has(e.id));
-        const qual=base.filter(e=>weekdays.every(d=>qualificationValid(e,d)));
-        if(!qual.length){const wasBlocked=base.length&&base.some(e=>weekdays.some(d=>!qualificationValid(e,d)));if(wasBlocked)blocked+=weekdays.length;gaps.push(...weekdays.map(d=>({date:d,kind:r.shift,reason:wasBlocked?'qualification':'noeligible'})));continue;}
-        const fully=qual.filter(e=>weekdays.every(d=>!hasAbs(e.id,d))),pool=fully.length?fully:qual;
-        const score=e=>{const absent=weekdays.filter(d=>hasAbs(e.id,d)).length,same=shiftCount[e.id][r.shift]||0,sw=prev[e.id]&&prev[e.id]!==r.shift?1:0,desired=rotationKind(e,weekIndex,team,activeKinds),rotation=r.shift===desired?0:900,projected=((levelSum[r.shift]||0)+effectiveQualLevel(e))/((levelCount[r.shift]||0)+1),qbal=Math.round(Math.abs(projected-avg)*250),valid=(e.qualifications||[]).filter(q=>{const due=dueDate(q);return !due||due>=weekdays[0]}).length;if(strategy==='balanced')return rotation+total[e.id]*30+same*4+absent*1000+sw*12;if(strategy==='qualificationBalanced')return rotation+qbal+total[e.id]*20+absent*1000+sw*10;return total[e.id]*55+same*3+absent*1000+sw*250-valid*0;};
-        pool.sort((a,b)=>score(a)-score(b)||a.name.localeCompare(b.name,'de'));
-        const chosen=pool[0];
-        if(prev[chosen.id]&&prev[chosen.id]!==r.shift)changes++;
-        prev[chosen.id]=r.shift;occupied.add(chosen.id);shiftThisWeek[r.shift]?.add(chosen.id);
-        levelSum[r.shift]=(levelSum[r.shift]||0)+effectiveQualLevel(chosen);levelCount[r.shift]=(levelCount[r.shift]||0)+1;
-        for(const date of weekdays){
-          if(hasAbs(chosen.id,date)){gaps.push({date,kind:r.shift,reason:'noeligible'});continue;}
-          generated.push({id:uuid(),date:appleEncode(date),employeeID:chosen.id,departmentID:deptId,kind:r.shift,onCallShift:null,onCallSlot:null});
-          total[chosen.id]++;shiftCount[chosen.id][r.shift]=(shiftCount[chosen.id][r.shift]||0)+1;
+        for(const item of planned){
+          const chosen=item.employee,shift=item.shift,kind=shift;
+          const previous=prev[chosen.id];
+          if(previous&&previous!==kind)changes++;
+          prev[chosen.id]=kind;
+          occupied.add(chosen.id);
+          shiftThisWeek[shift]?.add(chosen.id);
+
+          for(const date of weekdays){
+            if(!employeeMatchesHalls(chosen,department)){
+              gaps.push({date,kind,reason:'noeligible'});
+              continue;
+            }
+            if(!qualificationValid(chosen,date)){
+              blocked++;
+              gaps.push({date,kind,reason:'qualification'});
+              continue;
+            }
+            if(hasAbs(chosen.id,date)){
+              gaps.push({date,kind,reason:'noeligible'});
+              continue;
+            }
+            generated.push({id:uuid(),date:appleEncode(date),employeeID:chosen.id,departmentID:deptId,kind,onCallShift:null,onCallSlot:null});
+            total[chosen.id]++;
+            shiftCount[chosen.id][kind]=(shiftCount[chosen.id][kind]||0)+1;
+          }
         }
-      }}
-
-      // Alle zusätzlichen verfügbaren Mitarbeitenden oberhalb der Mindestbesetzung
-      // werden automatisch der Frühschicht zugeordnet statt leer zu bleiben.
-      const surplusEarly=team
-        .filter(e=>e.status==='Verfügbar'&&(e.allowedShifts||[]).includes('Früh')&&employeeMatchesHalls(e,department)&&!occupied.has(e.id)&&weekdays.every(d=>qualificationValid(e,d))&&weekdays.some(d=>!hasAbs(e.id,d)))
-        .sort((a,b)=>a.name.localeCompare(b.name,'de'));
-
-      for(const chosen of surplusEarly){
-        if(prev[chosen.id]&&prev[chosen.id]!=='Früh')changes++;
-        prev[chosen.id]='Früh';
-        occupied.add(chosen.id);
-        shiftThisWeek.Früh.add(chosen.id);
-        for(const date of weekdays){
-          if(hasAbs(chosen.id,date))continue;
-          generated.push({id:uuid(),date:appleEncode(date),employeeID:chosen.id,departmentID:deptId,kind:'Früh',onCallShift:null,onCallSlot:null});
-          total[chosen.id]++;
-          shiftCount[chosen.id].Früh=(shiftCount[chosen.id].Früh||0)+1;
+      }else{
+        const eligibleCount=(shift)=>team.filter(e=>e.status==='Verfügbar'&&(e.allowedShifts||[]).includes(shift)&&employeeMatchesHalls(e,department)&&!occupied.has(e.id)&&weekdays.every(d=>qualificationValid(e,d))).length;
+        const reqs=(department.requirements||[]).filter(r=>r.requiredStaff>0).sort((a,b)=>eligibleCount(a.shift)-eligibleCount(b.shift));
+  
+        for(const r of reqs){for(let n=0;n<r.requiredStaff;n++){
+          const base=team.filter(e=>e.status==='Verfügbar'&&(e.allowedShifts||[]).includes(r.shift)&&employeeMatchesHalls(e,department)&&!occupied.has(e.id));
+          const qual=base.filter(e=>weekdays.every(d=>qualificationValid(e,d)));
+          if(!qual.length){const wasBlocked=base.length&&base.some(e=>weekdays.some(d=>!qualificationValid(e,d)));if(wasBlocked)blocked+=weekdays.length;gaps.push(...weekdays.map(d=>({date:d,kind:r.shift,reason:wasBlocked?'qualification':'noeligible'})));continue;}
+          const fully=qual.filter(e=>weekdays.every(d=>!hasAbs(e.id,d))),pool=fully.length?fully:qual;
+          const score=e=>{const absent=weekdays.filter(d=>hasAbs(e.id,d)).length,same=shiftCount[e.id][r.shift]||0,sw=prev[e.id]&&prev[e.id]!==r.shift?1:0,desired=rotationKind(e,weekIndex,team,activeKinds),rotation=r.shift===desired?0:900,projected=((levelSum[r.shift]||0)+effectiveQualLevel(e))/((levelCount[r.shift]||0)+1),qbal=Math.round(Math.abs(projected-avg)*250),valid=(e.qualifications||[]).filter(q=>{const due=dueDate(q);return !due||due>=weekdays[0]}).length;if(strategy==='balanced')return rotation+total[e.id]*30+same*4+absent*1000+sw*12;if(strategy==='qualificationBalanced')return rotation+qbal+total[e.id]*20+absent*1000+sw*10;return total[e.id]*55+same*3+absent*1000+sw*250-valid*0;};
+          pool.sort((a,b)=>score(a)-score(b)||a.name.localeCompare(b.name,'de'));
+          const chosen=pool[0];
+          if(prev[chosen.id]&&prev[chosen.id]!==r.shift)changes++;
+          prev[chosen.id]=r.shift;occupied.add(chosen.id);shiftThisWeek[r.shift]?.add(chosen.id);
+          levelSum[r.shift]=(levelSum[r.shift]||0)+effectiveQualLevel(chosen);levelCount[r.shift]=(levelCount[r.shift]||0)+1;
+          for(const date of weekdays){
+            if(hasAbs(chosen.id,date)){gaps.push({date,kind:r.shift,reason:'noeligible'});continue;}
+            generated.push({id:uuid(),date:appleEncode(date),employeeID:chosen.id,departmentID:deptId,kind:r.shift,onCallShift:null,onCallSlot:null});
+            total[chosen.id]++;shiftCount[chosen.id][r.shift]=(shiftCount[chosen.id][r.shift]||0)+1;
+          }
+        }}
+  
+        // Alle zusätzlichen verfügbaren Mitarbeitenden oberhalb der Mindestbesetzung
+        // werden automatisch der Frühschicht zugeordnet statt leer zu bleiben.
+        const surplusEarly=team
+          .filter(e=>e.status==='Verfügbar'&&(e.allowedShifts||[]).includes('Früh')&&employeeMatchesHalls(e,department)&&!occupied.has(e.id)&&weekdays.every(d=>qualificationValid(e,d))&&weekdays.some(d=>!hasAbs(e.id,d)))
+          .sort((a,b)=>a.name.localeCompare(b.name,'de'));
+  
+        for(const chosen of surplusEarly){
+          if(prev[chosen.id]&&prev[chosen.id]!=='Früh')changes++;
+          prev[chosen.id]='Früh';
+          occupied.add(chosen.id);
+          shiftThisWeek.Früh.add(chosen.id);
+          for(const date of weekdays){
+            if(hasAbs(chosen.id,date))continue;
+            generated.push({id:uuid(),date:appleEncode(date),employeeID:chosen.id,departmentID:deptId,kind:'Früh',onCallShift:null,onCallSlot:null});
+            total[chosen.id]++;
+            shiftCount[chosen.id].Früh=(shiftCount[chosen.id].Früh||0)+1;
+          }
         }
-      }
-
+  
+        }
       if(department.weekendOnCallEnabled&&weekend.length){
         const occ=new Set(),mode=department.weekendOnCallMode||'Je Schicht',blocks=[];
         const strictIds=targetShift=>{
