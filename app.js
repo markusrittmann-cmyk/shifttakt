@@ -338,7 +338,7 @@
 
   function renderPlanResults(){
     const root=$('#planResults');if(!root)return;
-    const names={balanced:'3-2-1 ausgewogen',qualificationBalanced:'3-2-1 + Qualifikation',fewChanges:'Wenig Wechsel'};
+    const names={balanced:'Zyklus ausgewogen',qualificationBalanced:'Zyklus + Qualifikation',fewChanges:'Wenig Wechsel'};
     const policy=state.planOnCallPolicy;
     root.innerHTML=`${policy?`<div class="card"><strong>Bereitschaft:</strong> ${esc(policy.rule)}${policy.rule==='Immer aus fester Schicht'?` · ${esc(policy.fixedShift)}`:''}${policy.rule==='Wiederholendes Schichtmuster'?` · ${policy.pattern.map(esc).join(' → ')}`:''}</div>`:''}${state.planProposals.map((p,i)=>`<div class="plan-card"><h3>${names[p.strategy]}</h3><div class="plan-stats"><div class="plan-stat"><strong>${p.assignments.length}</strong><span>Einteilungen</span></div><div class="plan-stat ${p.gaps?'bad':''}"><strong>${p.gaps}</strong><span>offen</span></div><div class="plan-stat"><strong>${p.fairnessSpread}</strong><span>Gesamt Δ</span></div><div class="plan-stat"><strong>${p.weekendSpread}</strong><span>WE Δ</span></div><div class="plan-stat"><strong>${p.shiftChanges}</strong><span>Wechsel</span></div></div>${p.blockedByQualification?`<div class="critical-box">${p.blockedByQualification} Besetzungen scheitern an abgelaufenen Pflichtqualifikationen.</div>`:''}<div style="margin-top:12px"><button class="primary" data-apply-plan="${i}">Diesen Jahresplan übernehmen</button></div></div>`).join('')}`;
     $$('[data-apply-plan]',root).forEach(b=>b.onclick=()=>applyPlan(Number(b.dataset.applyPlan)));
