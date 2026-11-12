@@ -410,7 +410,47 @@
           })) : [])
         ];
 
-        for(const item of planned){
+        const fullWeekAbsent=e=>weekdays.length>0&&weekdays.every(d=>hasAbs(e.id,d));
+        const fullWeekQualified=e=>weekdays.every(d=>qualificationValid(e,d));
+        const weekPlan=planned.map(item=>({...item}));
+
+        // Vollwochen-Abwesenheiten in Spät/Nacht aus überschüssiger Frühschicht vertreten.
+        // Der Vertreter wechselt für die komplette Woche, nicht tageweise.
+        for(const targetShift of ['Nacht','Spät']){
+          const required=department.requirements?.find(r=>r.shift===targetShift)?.requiredStaff||0;
+          if(required<=0)continue;
+
+          const availableTarget=()=>weekPlan.filter(item=>
+            item.shift===targetShift &&
+            !fullWeekAbsent(item.employee) &&
+            employeeMatchesHalls(item.employee,department) &&
+            fullWeekQualified(item.employee)
+          ).length;
+
+          while(availableTarget()<required){
+            const earlyRequired=department.requirements?.find(r=>r.shift==='Früh')?.requiredStaff||0;
+            const availableEarly=weekPlan.filter(item=>
+              item.shift==='Früh' &&
+              !fullWeekAbsent(item.employee) &&
+              employeeMatchesHalls(item.employee,department) &&
+              fullWeekQualified(item.employee)
+            );
+            if(availableEarly.length<=earlyRequired)break;
+
+            const candidates=availableEarly
+              .filter(item=>(item.employee.allowedShifts||[]).includes(targetShift))
+              .filter(item=>(item.employee.allowedShifts||[]).length>1)
+              .sort((a,b)=>{
+                const sa=shiftCount[a.employee.id]?.[targetShift]||0;
+                const sb=shiftCount[b.employee.id]?.[targetShift]||0;
+                return sa-sb || total[a.employee.id]-total[b.employee.id] || a.employee.name.localeCompare(b.employee.name,'de');
+              });
+            if(!candidates.length)break;
+            candidates[0].shift=targetShift;
+          }
+        }
+
+        for(const item of weekPlan){
           const chosen=item.employee,shift=item.shift,kind=shift;
           const previous=prev[chosen.id];
           if(previous&&previous!==kind)changes++;
@@ -504,7 +544,7 @@
         }
 
         for(const block of blocks){
-          let base=team.filter(e=>e.status==='Verfügbar'&&e.canTakeWeekendOnCall!==false&&employeeMatchesHalls(e,department)&&!occ.has(e.id));
+          let base=team.filter(e=>e.status==='Verfügbar'&&e.canTakeWeekendOnCall!==false&&employeeMatchesHalls(e,department)&&!occ.has(e.id)&&!weekdays.every(d=>hasAbs(e.id,d)));
           if(block.required instanceof Set)base=base.filter(e=>block.required.has(e.id));
           if(block.preferred){const p=base.filter(e=>block.preferred.has(e.id));if(p.length)base=p;}
           const qual=base.filter(e=>weekend.every(d=>qualificationValid(e,d)));
