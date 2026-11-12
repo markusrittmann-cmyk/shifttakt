@@ -686,7 +686,7 @@
       $('#printMonthField',root)?.classList.toggle('hidden',current!=='month');
       $('#printWeekField',root)?.classList.toggle('hidden',current!=='week');
     };
-    $('input[name="printPeriodMode"]',root).forEach(x=>x.addEventListener('change',updatePeriodFields));
+    Array.from(root.querySelectorAll('input[name="printPeriodMode"]')).forEach(x=>x.addEventListener('change',updatePeriodFields));
 
     const populateWeekNumbers=(selected=defaultWeekNumber)=>{
       const year=Number($('#printWeekYear',root)?.value||defaultWeekYear);
