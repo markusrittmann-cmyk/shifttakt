@@ -12,7 +12,7 @@
   const state = {
     accessToken:null, refreshToken:null, expiresAt:0, context:null, members:[], doc:null, revision:null, updatedAt:null,
     page:'dashboard', scheduleMonth:startOfMonth(new Date()), scheduleDepartment:'all', onCallWeekend:null, onCallDepartment:null,
-    planProposals:[], busy:false
+    printDepartmentIds:null, printMode:false, planProposals:[], busy:false
   };
 
   const rootNode = root => typeof root==='string' ? document.querySelector(root) : root;
@@ -159,8 +159,12 @@
 
   function renderSchedule(){
     const root=$('#page-schedule');if(!state.doc)return; const m=state.scheduleMonth;const days=monthDays(m);const departments=[...state.doc.departments].sort((a,b)=>a.name.localeCompare(b.name,'de'));const dep=state.scheduleDepartment;
-    const emps=state.doc.employees.filter(e=>dep==='all'||e.departmentID===dep).sort((a,b)=>a.name.localeCompare(b.name,'de'));
-    const employeeScheduleRow=e=>`<tr class="schedule-employee-row"><td class="name"><strong>${esc(e.name)}</strong><span>${esc(deptById(e.departmentID)?.name||'')} · ${esc(e.roleTitle||'')}</span></td>${days.map(d=>{const c=codeFor(e,d);return `<td class="schedule-cell ${isWeekend(d)?'weekend-col':''}" data-emp="${e.id}" data-date="${localISO(d)}">${c?`<span class="shift-pill s-${c}">${c}</span>`:''}</td>`}).join('')}</tr>`;
+    const printIds=state.printMode&&Array.isArray(state.printDepartmentIds)?new Set(state.printDepartmentIds):null;
+    const emps=state.doc.employees
+      .filter(e=>dep==='all'||e.departmentID===dep)
+      .filter(e=>!printIds||printIds.has(e.departmentID))
+      .sort((a,b)=>a.name.localeCompare(b.name,'de'));
+    const employeeScheduleRow=e=>`<tr class="schedule-employee-row" data-department-id="${esc(e.departmentID)}"><td class="name"><strong>${esc(e.name)}</strong><span>${esc(deptById(e.departmentID)?.name||'')} · ${esc(e.roleTitle||'')}</span></td>${days.map(d=>{const c=codeFor(e,d);return `<td class="schedule-cell ${isWeekend(d)?'weekend-col':''}" data-emp="${e.id}" data-date="${localISO(d)}">${c?`<span class="shift-pill s-${c}">${c}</span>`:''}</td>`}).join('')}</tr>`;
     const groupedScheduleRows=()=>{
       if(dep!=='all') return emps.map(employeeScheduleRow).join('');
       const knownDepartmentIds=new Set(departments.map(d=>d.id));
@@ -573,7 +577,75 @@
     });
   }
 
-  function renderExport(){const root=$('#page-export');if(!state.doc)return;root.innerHTML=`<div class="grid cols-2"><div class="card"><h3>Schichtplan drucken / PDF</h3><p class="muted">Öffnet die Druckansicht des aktuell gewählten Monats. Im Browser kann anschließend „Als PDF sichern“ gewählt werden.</p><button class="primary" id="printPlan">Druckansicht öffnen</button></div><div class="card"><h3>Monat als CSV</h3><p class="muted">Exportiert den aktuell im Schichtplan gewählten Monat als Tabelle.</p><button class="primary" id="csvPlan">CSV herunterladen</button></div></div>`;$('#printPlan',root).onclick=()=>{switchPage('schedule');setTimeout(()=>window.print(),150)};$('#csvPlan',root).onclick=exportCSV;}
+  function defaultPrintDepartmentIds(){
+    return [...state.doc.departments]
+      .filter(d=>lower(d.name)!=='lead funktionen')
+      .map(d=>d.id);
+  }
+
+  function renderExport(){
+    const root=$('#page-export');if(!state.doc)return;
+    const departments=[...state.doc.departments].sort((a,b)=>a.name.localeCompare(b.name,'de'));
+    const selected=Array.isArray(state.printDepartmentIds)?new Set(state.printDepartmentIds):new Set(defaultPrintDepartmentIds());
+
+    root.innerHTML=`<div class="grid cols-2">
+      <div class="card">
+        <h3>Schichtplan drucken / PDF</h3>
+        <p class="muted">Wähle die Abteilungen, die im gemeinsamen Monatsplan erscheinen sollen. Lead Funktionen ist standardmäßig ausgeblendet.</p>
+        <div class="print-dept-picker">
+          ${departments.map(d=>`<label class="check print-dept-option"><input type="checkbox" name="printDepartment" value="${d.id}" ${selected.has(d.id)?'checked':''}>${esc(d.name)}</label>`).join('')}
+        </div>
+        <div class="row-actions print-select-actions">
+          <button class="secondary small" type="button" id="printSelectAll">Alle auswählen</button>
+          <button class="secondary small" type="button" id="printSelectOperational">Ohne Lead Funktionen</button>
+        </div>
+        <button class="primary" id="printPlan">Druckansicht öffnen</button>
+      </div>
+      <div class="card">
+        <h3>Monat als CSV</h3>
+        <p class="muted">Exportiert den aktuell im Schichtplan gewählten Monat als Tabelle.</p>
+        <button class="primary" id="csvPlan">CSV herunterladen</button>
+      </div>
+    </div>`;
+
+    const checkedIds=()=>$$('input[name="printDepartment"]:checked',root).map(x=>x.value);
+    const persistSelection=()=>{state.printDepartmentIds=checkedIds();};
+    $$('input[name="printDepartment"]',root).forEach(x=>x.addEventListener('change',persistSelection));
+
+    $('#printSelectAll',root).onclick=()=>{
+      $$('input[name="printDepartment"]',root).forEach(x=>x.checked=true);
+      persistSelection();
+    };
+    $('#printSelectOperational',root).onclick=()=>{
+      $$('input[name="printDepartment"]',root).forEach(x=>{
+        const d=deptById(x.value);
+        x.checked=lower(d?.name)!=='lead funktionen';
+      });
+      persistSelection();
+    };
+
+    $('#printPlan',root).onclick=()=>{
+      const ids=checkedIds();
+      if(!ids.length){toast('Bitte mindestens eine Abteilung für den Druck auswählen.',true);return;}
+      state.printDepartmentIds=ids;
+      const previousDepartment=state.scheduleDepartment;
+      const previousPage=state.page;
+      state.printMode=true;
+      state.scheduleDepartment='all';
+      switchPage('schedule');
+
+      const cleanup=()=>{
+        window.removeEventListener('afterprint',cleanup);
+        state.printMode=false;
+        state.scheduleDepartment=previousDepartment;
+        renderSchedule();
+        if(previousPage==='export')switchPage('export');
+      };
+      window.addEventListener('afterprint',cleanup);
+      setTimeout(()=>window.print(),180);
+    };
+    $('#csvPlan',root).onclick=exportCSV;
+  }
   function exportCSV(){const days=monthDays(state.scheduleMonth),emps=state.doc.employees.filter(e=>state.scheduleDepartment==='all'||e.departmentID===state.scheduleDepartment).sort((a,b)=>a.name.localeCompare(b.name,'de'));const rows=[['Mitarbeiter','Abteilung',...days.map(localISO)]];for(const e of emps)rows.push([e.name,deptById(e.departmentID)?.name||'',...days.map(d=>codeFor(e,d))]);const csv=rows.map(r=>r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(';')).join('\n');const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`ShiftTakt_${state.scheduleMonth.getFullYear()}_${pad(state.scheduleMonth.getMonth()+1)}.csv`;a.click();URL.revokeObjectURL(a.href);}
 
   // MARK: Events / init
