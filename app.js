@@ -52,6 +52,16 @@
     const m=String(value||'').match(/^(\d{4})-(\d{2})$/);
     return m?new Date(Number(m[1]),Number(m[2])-1,1):startOfMonth(new Date());
   }
+  function isoWeeksInYear(year){
+    const d=new Date(year,11,28);
+    return Number(isoWeekValue(d).slice(-2));
+  }
+  function exportYearOptions(selectedYear){
+    const current=new Date().getFullYear();
+    const start=Math.min(current-1,selectedYear||current);
+    const end=Math.max(current+10,selectedYear||current);
+    return Array.from({length:end-start+1},(_,i)=>start+i);
+  }
   function isWeekend(d){ const w=d.getDay(); return w===0||w===6; }
   function appleEncode(d){ return d.getTime()/1000 - APPLE_EPOCH; }
   function appleDecode(v){ if(v instanceof Date) return v; if(typeof v==='string'){ const n=Number(v); if(Number.isFinite(n)) v=n; else return new Date(v); } return new Date((Number(v)+APPLE_EPOCH)*1000); }
@@ -611,6 +621,11 @@
     const selected=Array.isArray(state.printDepartmentIds)?new Set(state.printDepartmentIds):new Set(defaultPrintDepartmentIds());
     const defaultMonth=state.printMonth||monthInputValue(state.scheduleMonth);
     const defaultWeek=state.printWeek||isoWeekValue(state.scheduleMonth);
+    const [defaultMonthYear,defaultMonthNumber]=defaultMonth.split('-').map(Number);
+    const weekMatch=defaultWeek.match(/^(\d{4})-W(\d{2})$/);
+    const defaultWeekYear=weekMatch?Number(weekMatch[1]):state.scheduleMonth.getFullYear();
+    const defaultWeekNumber=weekMatch?Number(weekMatch[2]):1;
+    const years=exportYearOptions(Math.max(defaultMonthYear,defaultWeekYear));
     const mode=state.printPeriodMode||'month';
 
     root.innerHTML=`<div class="grid cols-2">
@@ -623,12 +638,26 @@
             <label class="check"><input type="radio" name="printPeriodMode" value="month" ${mode==='month'?'checked':''}>Monat</label>
             <label class="check"><input type="radio" name="printPeriodMode" value="week" ${mode==='week'?'checked':''}>Kalenderwoche</label>
           </div>
-          <label class="field print-period-field" id="printMonthField">Monat
-            <input id="printMonth" type="month" value="${defaultMonth}">
-          </label>
-          <label class="field print-period-field" id="printWeekField">Kalenderwoche
-            <input id="printWeek" type="week" value="${defaultWeek}">
-          </label>
+
+          <div class="print-period-grid" id="printMonthField">
+            <label class="field">Jahr
+              <select id="printMonthYear">${years.map(y=>`<option value="${y}" ${y===defaultMonthYear?'selected':''}>${y}</option>`).join('')}</select>
+            </label>
+            <label class="field">Monat
+              <select id="printMonthNumber">
+                ${Array.from({length:12},(_,i)=>i+1).map(m=>`<option value="${m}" ${m===defaultMonthNumber?'selected':''}>${new Intl.DateTimeFormat('de-DE',{month:'long'}).format(new Date(2026,m-1,1))}</option>`).join('')}
+              </select>
+            </label>
+          </div>
+
+          <div class="print-period-grid" id="printWeekField">
+            <label class="field">Jahr
+              <select id="printWeekYear">${years.map(y=>`<option value="${y}" ${y===defaultWeekYear?'selected':''}>${y}</option>`).join('')}</select>
+            </label>
+            <label class="field">Kalenderwoche
+              <select id="printWeekNumber"></select>
+            </label>
+          </div>
         </div>
 
         <div class="print-dept-picker">
@@ -657,9 +686,18 @@
       $('#printMonthField',root)?.classList.toggle('hidden',current!=='month');
       $('#printWeekField',root)?.classList.toggle('hidden',current!=='week');
     };
-    $$('input[name="printPeriodMode"]',root).forEach(x=>x.addEventListener('change',updatePeriodFields));
-    $('#printMonth',root)?.addEventListener('change',e=>{state.printMonth=e.target.value;});
-    $('#printWeek',root)?.addEventListener('change',e=>{state.printWeek=e.target.value;});
+    $('input[name="printPeriodMode"]',root).forEach(x=>x.addEventListener('change',updatePeriodFields));
+
+    const populateWeekNumbers=(selected=defaultWeekNumber)=>{
+      const year=Number($('#printWeekYear',root)?.value||defaultWeekYear);
+      const max=isoWeeksInYear(year);
+      const select=$('#printWeekNumber',root);
+      if(!select)return;
+      const safe=Math.min(Math.max(1,Number(selected)||1),max);
+      select.innerHTML=Array.from({length:max},(_,i)=>i+1).map(w=>`<option value="${w}" ${w===safe?'selected':''}>KW ${w}</option>`).join('');
+    };
+    $('#printWeekYear',root)?.addEventListener('change',()=>populateWeekNumbers(1));
+    populateWeekNumbers(defaultWeekNumber);
     updatePeriodFields();
 
     $('#printSelectAll',root).onclick=()=>{
@@ -681,14 +719,17 @@
       const periodMode=$('input[name="printPeriodMode"]:checked',root)?.value||'month';
       let printDays=[],periodLabel='';
       if(periodMode==='week'){
-        const weekValue=$('#printWeek',root)?.value||defaultWeek;
+        const y=Number($('#printWeekYear',root)?.value||defaultWeekYear);
+        const w=Number($('#printWeekNumber',root)?.value||defaultWeekNumber);
+        const weekValue=`${y}-W${pad(w)}`;
         printDays=daysForISOWeek(weekValue);
         if(!printDays.length){toast('Bitte eine gültige Kalenderwoche auswählen.',true);return;}
-        const [,y,w]=weekValue.match(/^(\d{4})-W(\d{2})$/)||[];
-        periodLabel=`KW ${Number(w)} / ${y}`;
+        periodLabel=`KW ${w} / ${y}`;
         state.printWeek=weekValue;
       }else{
-        const monthValue=$('#printMonth',root)?.value||defaultMonth;
+        const y=Number($('#printMonthYear',root)?.value||defaultMonthYear);
+        const m=Number($('#printMonthNumber',root)?.value||defaultMonthNumber);
+        const monthValue=`${y}-${pad(m)}`;
         const monthDate=monthFromInput(monthValue);
         printDays=monthDays(monthDate);
         periodLabel=new Intl.DateTimeFormat('de-DE',{month:'long',year:'numeric'}).format(monthDate);
