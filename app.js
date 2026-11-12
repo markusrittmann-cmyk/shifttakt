@@ -12,7 +12,7 @@
   const state = {
     accessToken:null, refreshToken:null, expiresAt:0, context:null, members:[], doc:null, revision:null, updatedAt:null,
     page:'dashboard', scheduleMonth:startOfMonth(new Date()), scheduleDepartment:'all', onCallWeekend:null, onCallDepartment:null,
-    printDepartmentIds:null, printMode:false, planProposals:[], busy:false
+    printDepartmentIds:null, printMode:false, printPeriodMode:'month', printMonth:null, printWeek:null, printDays:null, printPeriodLabel:null, planProposals:[], busy:false
   };
 
   const rootNode = root => typeof root==='string' ? document.querySelector(root) : root;
@@ -30,6 +30,28 @@
   function addMonths(d,n){ const x=new Date(d.getFullYear(),d.getMonth()+n,1); return x; }
   function sameDay(a,b){ return localISO(a)===localISO(b); }
   function monthDays(d){ const y=d.getFullYear(),m=d.getMonth(),last=new Date(y,m+1,0).getDate(); return Array.from({length:last},(_,i)=>new Date(y,m,i+1)); }
+  function isoWeekValue(d){
+    const x=new Date(d.getFullYear(),d.getMonth(),d.getDate());
+    x.setHours(0,0,0,0);
+    x.setDate(x.getDate()+3-((x.getDay()+6)%7));
+    const weekYear=x.getFullYear();
+    const week1=new Date(weekYear,0,4);
+    const week=1+Math.round(((x-week1)/86400000-3+((week1.getDay()+6)%7))/7);
+    return `${weekYear}-W${pad(week)}`;
+  }
+  function daysForISOWeek(value){
+    const m=String(value||'').match(/^(\d{4})-W(\d{2})$/);
+    if(!m)return [];
+    const year=Number(m[1]),week=Number(m[2]);
+    const jan4=new Date(year,0,4);
+    const monday=addDays(jan4,-((jan4.getDay()+6)%7)+(week-1)*7);
+    return Array.from({length:7},(_,i)=>addDays(monday,i));
+  }
+  function monthInputValue(d){ return `${d.getFullYear()}-${pad(d.getMonth()+1)}`; }
+  function monthFromInput(value){
+    const m=String(value||'').match(/^(\d{4})-(\d{2})$/);
+    return m?new Date(Number(m[1]),Number(m[2])-1,1):startOfMonth(new Date());
+  }
   function isWeekend(d){ const w=d.getDay(); return w===0||w===6; }
   function appleEncode(d){ return d.getTime()/1000 - APPLE_EPOCH; }
   function appleDecode(v){ if(v instanceof Date) return v; if(typeof v==='string'){ const n=Number(v); if(Number.isFinite(n)) v=n; else return new Date(v); } return new Date((Number(v)+APPLE_EPOCH)*1000); }
@@ -158,7 +180,7 @@
   function metric(v,label,cls){return `<div class="card metric ${cls}"><div class="value">${v}</div><div class="label">${label}</div></div>`}
 
   function renderSchedule(){
-    const root=$('#page-schedule');if(!state.doc)return; const m=state.scheduleMonth;const days=monthDays(m);const departments=[...state.doc.departments].sort((a,b)=>a.name.localeCompare(b.name,'de'));const dep=state.scheduleDepartment;
+    const root=$('#page-schedule');if(!state.doc)return; const m=state.scheduleMonth;const days=state.printMode&&Array.isArray(state.printDays)&&state.printDays.length?state.printDays:monthDays(m);const departments=[...state.doc.departments].sort((a,b)=>a.name.localeCompare(b.name,'de'));const dep=state.scheduleDepartment;
     const printIds=state.printMode&&Array.isArray(state.printDepartmentIds)?new Set(state.printDepartmentIds):null;
     const emps=state.doc.employees
       .filter(e=>dep==='all'||e.departmentID===dep)
@@ -173,7 +195,7 @@
       if(withoutDepartment.length) groups.push({name:'Ohne Abteilung',employees:withoutDepartment});
       return groups.map(g=>`<tr class="schedule-department-row"><td class="name"><strong>${esc(g.name)}</strong><span>${g.employees.length} Mitarbeiter</span></td><td colspan="${days.length}"></td></tr>${g.employees.map(employeeScheduleRow).join('')}`).join('');
     };
-    root.innerHTML=`<div class="toolbar">
+    root.innerHTML=`${state.printMode&&state.printPeriodLabel?`<div class="print-period-title">Schichtplan · ${esc(state.printPeriodLabel)}</div>`:''}<div class="toolbar">
       <button class="secondary" data-sched-prev>‹</button><strong>${new Intl.DateTimeFormat('de-DE',{month:'long',year:'numeric'}).format(m)}</strong><button class="secondary" data-sched-next>›</button>
       <select id="scheduleDept"><option value="all">Alle Abteilungen</option>${departments.map(d=>`<option value="${d.id}" ${dep===d.id?'selected':''}>${esc(d.name)}</option>`).join('')}</select>
       <button class="secondary" data-sched-today>Heute</button><span class="tag"><span class="shift-pill s-F" style="width:24px;height:24px">F</span> Früh</span><span class="tag"><span class="shift-pill s-S" style="width:24px;height:24px">S</span> Spät</span><span class="tag"><span class="shift-pill s-N" style="width:24px;height:24px">N</span> Nacht</span>
@@ -587,11 +609,28 @@
     const root=$('#page-export');if(!state.doc)return;
     const departments=[...state.doc.departments].sort((a,b)=>a.name.localeCompare(b.name,'de'));
     const selected=Array.isArray(state.printDepartmentIds)?new Set(state.printDepartmentIds):new Set(defaultPrintDepartmentIds());
+    const defaultMonth=state.printMonth||monthInputValue(state.scheduleMonth);
+    const defaultWeek=state.printWeek||isoWeekValue(state.scheduleMonth);
+    const mode=state.printPeriodMode||'month';
 
     root.innerHTML=`<div class="grid cols-2">
       <div class="card">
         <h3>Schichtplan drucken / PDF</h3>
-        <p class="muted">Wähle die Abteilungen, die im gemeinsamen Monatsplan erscheinen sollen. Lead Funktionen ist standardmäßig ausgeblendet.</p>
+        <p class="muted">Wähle Zeitraum und Abteilungen für den gemeinsamen Schichtplan. Lead Funktionen ist standardmäßig ausgeblendet.</p>
+
+        <div class="print-period-box">
+          <div class="print-period-mode">
+            <label class="check"><input type="radio" name="printPeriodMode" value="month" ${mode==='month'?'checked':''}>Monat</label>
+            <label class="check"><input type="radio" name="printPeriodMode" value="week" ${mode==='week'?'checked':''}>Kalenderwoche</label>
+          </div>
+          <label class="field print-period-field" id="printMonthField">Monat
+            <input id="printMonth" type="month" value="${defaultMonth}">
+          </label>
+          <label class="field print-period-field" id="printWeekField">Kalenderwoche
+            <input id="printWeek" type="week" value="${defaultWeek}">
+          </label>
+        </div>
+
         <div class="print-dept-picker">
           ${departments.map(d=>`<label class="check print-dept-option"><input type="checkbox" name="printDepartment" value="${d.id}" ${selected.has(d.id)?'checked':''}>${esc(d.name)}</label>`).join('')}
         </div>
@@ -612,6 +651,17 @@
     const persistSelection=()=>{state.printDepartmentIds=checkedIds();};
     $$('input[name="printDepartment"]',root).forEach(x=>x.addEventListener('change',persistSelection));
 
+    const updatePeriodFields=()=>{
+      const current=$('input[name="printPeriodMode"]:checked',root)?.value||'month';
+      state.printPeriodMode=current;
+      $('#printMonthField',root)?.classList.toggle('hidden',current!=='month');
+      $('#printWeekField',root)?.classList.toggle('hidden',current!=='week');
+    };
+    $$('input[name="printPeriodMode"]',root).forEach(x=>x.addEventListener('change',updatePeriodFields));
+    $('#printMonth',root)?.addEventListener('change',e=>{state.printMonth=e.target.value;});
+    $('#printWeek',root)?.addEventListener('change',e=>{state.printWeek=e.target.value;});
+    updatePeriodFields();
+
     $('#printSelectAll',root).onclick=()=>{
       $$('input[name="printDepartment"]',root).forEach(x=>x.checked=true);
       persistSelection();
@@ -627,17 +677,44 @@
     $('#printPlan',root).onclick=()=>{
       const ids=checkedIds();
       if(!ids.length){toast('Bitte mindestens eine Abteilung für den Druck auswählen.',true);return;}
+
+      const periodMode=$('input[name="printPeriodMode"]:checked',root)?.value||'month';
+      let printDays=[],periodLabel='';
+      if(periodMode==='week'){
+        const weekValue=$('#printWeek',root)?.value||defaultWeek;
+        printDays=daysForISOWeek(weekValue);
+        if(!printDays.length){toast('Bitte eine gültige Kalenderwoche auswählen.',true);return;}
+        const [,y,w]=weekValue.match(/^(\d{4})-W(\d{2})$/)||[];
+        periodLabel=`KW ${Number(w)} / ${y}`;
+        state.printWeek=weekValue;
+      }else{
+        const monthValue=$('#printMonth',root)?.value||defaultMonth;
+        const monthDate=monthFromInput(monthValue);
+        printDays=monthDays(monthDate);
+        periodLabel=new Intl.DateTimeFormat('de-DE',{month:'long',year:'numeric'}).format(monthDate);
+        state.printMonth=monthValue;
+      }
+
+      state.printPeriodMode=periodMode;
       state.printDepartmentIds=ids;
+      state.printDays=printDays;
+      state.printPeriodLabel=periodLabel;
+
       const previousDepartment=state.scheduleDepartment;
       const previousPage=state.page;
+      const previousMonth=state.scheduleMonth;
       state.printMode=true;
       state.scheduleDepartment='all';
+      state.scheduleMonth=startOfMonth(printDays[0]||state.scheduleMonth);
       switchPage('schedule');
 
       const cleanup=()=>{
         window.removeEventListener('afterprint',cleanup);
         state.printMode=false;
+        state.printDays=null;
+        state.printPeriodLabel=null;
         state.scheduleDepartment=previousDepartment;
+        state.scheduleMonth=previousMonth;
         renderSchedule();
         if(previousPage==='export')switchPage('export');
       };
