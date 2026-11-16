@@ -418,7 +418,7 @@
     return {fixed,rotating,cycle};
   }
 
-  function rotationKind(e,weekIndex,team,activeKinds){const canonical=['Nacht','Spät','Versetzt','Früh'];const sorted=[...team].sort((a,b)=>a.name.localeCompare(b.name,'de'));const offset=Math.max(0,sorted.findIndex(x=>x.id===e.id));const raw=canonical[(weekIndex+offset)%3];if(activeKinds.has(raw))return raw;if(activeKinds.has('Früh'))return 'Früh';if(activeKinds.has('Versetzt'))return 'Versetzt';if(activeKinds.has('Spät'))return 'Spät';if(activeKinds.has('Nacht'))return 'Nacht';return 'Früh';}
+  function rotationKind(e,weekIndex,team,activeKinds){const canonical=['Nacht','Spät','Versetzt','Früh'];const sorted=[...team].sort((a,b)=>a.name.localeCompare(b.name,'de'));const offset=Math.max(0,sorted.findIndex(x=>x.id===e.id));const raw=canonical[(weekIndex+offset)%canonical.length];if(activeKinds.has(raw))return raw;if(activeKinds.has('Früh'))return 'Früh';if(activeKinds.has('Versetzt'))return 'Versetzt';if(activeKinds.has('Spät'))return 'Spät';if(activeKinds.has('Nacht'))return 'Nacht';return 'Früh';}
   function spread(vals){return vals.length?Math.max(...vals)-Math.min(...vals):0;}
 
   function generateYearProposal(deptId,year,strategy,onCallPolicy){
@@ -451,7 +451,7 @@
         const fullWeekQualified=e=>weekdays.every(d=>qualificationValid(e,d));
         const weekPlan=planned.map(item=>({...item}));
 
-        // Vollwochen-Abwesenheiten in Spät/Nacht aus überschüssiger Frühschicht vertreten.
+        // Vollwochen-Abwesenheiten in Nacht/Spät/Versetzt aus überschüssiger Frühschicht vertreten.
         // Der Vertreter wechselt für die komplette Woche, nicht tageweise.
         for(const targetShift of ['Nacht','Spät','Versetzt']){
           const required=department.requirements?.find(r=>r.shift===targetShift)?.requiredStaff||0;
