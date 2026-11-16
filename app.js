@@ -154,7 +154,7 @@
       if(!weekend){ for(const s of SHIFT_TYPES){ const req=requiredStaff(d,s),act=activeStaff(d,s,date); if(req>act)out.push({dept:d,kind:s,required:req,actual:act,missing:req-act}); } }
       if(date.getDay()===6&&d.weekendOnCallEnabled){
         const mode=d.weekendOnCallMode||'Je Schicht';
-        if(mode==='Ganzes Wochenende'){
+        if(mode==='Ganzes Wochenende'||mode==='Samstag'){
           const req=Math.max(1,d.wholeWeekendOnCallRequired||1); const act=assignmentsOn(date).filter(a=>a.departmentID===d.id&&a.kind==='Bereitschaft'&&!a.onCallShift).length; if(req>act)out.push({dept:d,kind:'Bereitschaft',required:req,actual:act,missing:req-act});
         }else if(mode==='2 × 10 Stunden'){
           for(const slot of ['06:00–16:00','16:00–02:00']){ const act=assignmentsOn(date).filter(a=>a.departmentID===d.id&&a.kind==='Bereitschaft'&&a.onCallSlot===slot).length; if(act<1)out.push({dept:d,kind:`Bereitschaft ${slot}`,required:1,actual:act,missing:1-act}); }
@@ -284,7 +284,7 @@
   function renderDepartments(){
     const root=$('#page-departments');if(!state.doc)return;root.innerHTML=`<div class="section-head"><div><h3>Abteilungen & Mindestbesetzung</h3><div class="muted">Diese Werte steuern Dashboard, Schichtplan und Jahresplan.</div></div><button class="primary" id="addDept">+ Abteilung</button></div><div class="grid cols-2">${state.doc.departments.map(d=>`<div class="card"><div class="section-head" style="margin:0 0 10px"><h3>${esc(d.name)}</h3><div class="row-actions"><button class="secondary small" data-edit-dept="${d.id}">Bearbeiten</button><button class="danger small" data-del-dept="${d.id}">Löschen</button></div></div>${(d.requirements||[]).map(r=>`<div class="list-row"><div class="main-info"><strong>${r.shift}</strong><span>Mindestbesetzung</span></div><strong>${r.requiredStaff}</strong></div>`).join('')}<div style="margin-top:10px"><span class="tag ${d.weekendOnCallEnabled?'green':''}">Bereitschaft ${d.weekendOnCallEnabled?'aktiv':'aus'}</span></div></div>`).join('')}</div>`;$('#addDept',root).onclick=()=>openDepartmentEditor();$$('[data-edit-dept]',root).forEach(b=>b.onclick=()=>openDepartmentEditor(b.dataset.editDept));$$('[data-del-dept]',root).forEach(b=>b.onclick=()=>deleteDepartment(b.dataset.delDept));
   }
-  function openDepartmentEditor(id=null){const d=id?clone(deptById(id)):null;const req=s=>d?.requirements?.find(r=>r.shift===s)||{id:uuid(),shift:s,requiredStaff:s==='Früh'?1:0,weekendOnCallRequired:0};showModal(d?'Abteilung bearbeiten':'Abteilung anlegen',`<form id="deptForm" class="form-grid"><label class="field full">Name<input name="name" value="${esc(d?.name||'')}" required></label>${SHIFT_TYPES.map(s=>{const r=req(s);return `<div class="subcard"><strong>${s}</strong><label class="field">Mindestbesetzung<input type="number" min="0" name="staff_${s}" value="${r.requiredStaff||0}"></label><label class="field">Bereitschaft je Schicht<input type="number" min="0" name="call_${s}" value="${r.weekendOnCallRequired||0}"></label></div>`}).join('')}<div class="field full"><label class="check"><input type="checkbox" name="weekend" ${d?.weekendOnCallEnabled?'checked':''}>Samstags-Bereitschaft aktiv</label></div><label class="field">Bereitschaftsmodell<select name="mode">${['Ganzes Wochenende','Je Schicht','2 × 10 Stunden'].map(x=>`<option ${((d?.weekendOnCallMode)||'Je Schicht')===x?'selected':''}>${x==='Ganzes Wochenende'?'Samstag':x}</option>`).join('')}</select></label><label class="field">Anzahl Samstag<input type="number" min="1" name="whole" value="${d?.wholeWeekendOnCallRequired||1}"></label><label class="field full">Hallen / Bereiche (kommagetrennt)<input name="halls" value="${esc((d?.halls||[]).join(', '))}"></label><div class="full row-actions" style="justify-content:flex-end"><button type="button" class="ghost" data-close-modal>Abbrechen</button><button class="primary">Speichern</button></div></form>`);$('#deptForm','#modalBody').onsubmit=async ev=>{ev.preventDefault();const f=new FormData(ev.target);const requirements=SHIFT_TYPES.map(s=>{const old=req(s);return {id:old.id||uuid(),shift:s,requiredStaff:Number(f.get(`staff_${s}`)||0),weekendOnCallRequired:Number(f.get(`call_${s}`)||0)}});const next={id:d?.id||uuid(),name:f.get('name').trim(),requirements,weekendOnCallEnabled:f.get('weekend')==='on',halls:String(f.get('halls')||'').split(',').map(x=>x.trim()).filter(Boolean),weekendOnCallMode:f.get('mode'),wholeWeekendOnCallRequired:Number(f.get('whole')||1)};await saveMutation(d?'Abteilung aktualisiert.':'Abteilung angelegt.',doc=>{const i=doc.departments.findIndex(x=>x.id===next.id);if(i>=0)doc.departments[i]=next;else doc.departments.push(next);});closeModal();};}
+  function openDepartmentEditor(id=null){const d=id?clone(deptById(id)):null;const req=s=>d?.requirements?.find(r=>r.shift===s)||{id:uuid(),shift:s,requiredStaff:s==='Früh'?1:0,weekendOnCallRequired:0};showModal(d?'Abteilung bearbeiten':'Abteilung anlegen',`<form id="deptForm" class="form-grid"><label class="field full">Name<input name="name" value="${esc(d?.name||'')}" required></label>${SHIFT_TYPES.map(s=>{const r=req(s);return `<div class="subcard"><strong>${s}</strong><label class="field">Mindestbesetzung<input type="number" min="0" name="staff_${s}" value="${r.requiredStaff||0}"></label><label class="field">Bereitschaft je Schicht<input type="number" min="0" name="call_${s}" value="${r.weekendOnCallRequired||0}"></label></div>`}).join('')}<div class="field full"><label class="check"><input type="checkbox" name="weekend" ${d?.weekendOnCallEnabled?'checked':''}>Samstags-Bereitschaft aktiv</label></div><label class="field">Bereitschaftsmodell<select name="mode">${['Samstag','Je Schicht','2 × 10 Stunden'].map(x=>`<option value="${x}" ${((((d?.weekendOnCallMode)||'Je Schicht')==='Ganzes Wochenende'?'Samstag':((d?.weekendOnCallMode)||'Je Schicht'))===x?'selected':'')}>${x}</option>`).join('')}</select></label><label class="field">Anzahl Samstag<input type="number" min="1" name="whole" value="${d?.wholeWeekendOnCallRequired||1}"></label><label class="field full">Hallen / Bereiche (kommagetrennt)<input name="halls" value="${esc((d?.halls||[]).join(', '))}"></label><div class="full row-actions" style="justify-content:flex-end"><button type="button" class="ghost" data-close-modal>Abbrechen</button><button class="primary">Speichern</button></div></form>`);$('#deptForm','#modalBody').onsubmit=async ev=>{ev.preventDefault();const f=new FormData(ev.target);const requirements=SHIFT_TYPES.map(s=>{const old=req(s);return {id:old.id||uuid(),shift:s,requiredStaff:Number(f.get(`staff_${s}`)||0),weekendOnCallRequired:Number(f.get(`call_${s}`)||0)}});const next={id:d?.id||uuid(),name:f.get('name').trim(),requirements,weekendOnCallEnabled:f.get('weekend')==='on',halls:String(f.get('halls')||'').split(',').map(x=>x.trim()).filter(Boolean),weekendOnCallMode:f.get('mode'),wholeWeekendOnCallRequired:Number(f.get('whole')||1)};await saveMutation(d?'Abteilung aktualisiert.':'Abteilung angelegt.',doc=>{const i=doc.departments.findIndex(x=>x.id===next.id);if(i>=0)doc.departments[i]=next;else doc.departments.push(next);});closeModal();};}
   async function deleteDepartment(id){const d=deptById(id);if(!d||!confirm(`Abteilung „${d.name}“ wirklich löschen? Zugehörige Mitarbeiter, Schichten und Abwesenheiten werden ebenfalls gelöscht.`))return;await saveMutation('Abteilung gelöscht.',doc=>{const empIds=new Set(doc.employees.filter(e=>e.departmentID===id).map(e=>e.id));doc.departments=doc.departments.filter(x=>x.id!==id);doc.employees=doc.employees.filter(e=>e.departmentID!==id);doc.assignments=doc.assignments.filter(a=>a.departmentID!==id&&!empIds.has(a.employeeID));doc.absences=doc.absences.filter(a=>!empIds.has(a.employeeID));});}
 
   function upcomingSaturdays(count=8){const out=[];let d=startOfDay(new Date());for(let i=-1;out.length<count&&i<90;i++){const x=addDays(d,i);if(x.getDay()===6&&addDays(x,1)>=d)out.push(x);}return out;}
@@ -293,7 +293,7 @@
     root.innerHTML=`<div class="oncall-weekends">${weekends.map(w=>`<button class="${sameDay(w,sat)?'active':''}" data-weekend="${localISO(w)}">Sa ${fmtDate(w)}</button>`).join('')}</div><div class="toolbar" style="margin-top:14px"><select id="oncallDept">${activeDepts.map(d=>`<option value="${d.id}" ${d.id===state.onCallDepartment?'selected':''}>${esc(d.name)}</option>`).join('')}</select></div>${state.onCallDepartment?onCallDeptHtml(deptById(state.onCallDepartment),sat):'<div class="warn-box" style="margin-top:16px">Keine Abteilung mit aktiver Bereitschaft vorhanden.</div>'}`;
     $$('[data-weekend]',root).forEach(b=>b.onclick=()=>{state.onCallWeekend=parseISODate(b.dataset.weekend);renderOnCall()});$('#oncallDept',root)?.addEventListener('change',e=>{state.onCallDepartment=e.target.value;renderOnCall()});$$('[data-edit-oncall]',root).forEach(b=>b.onclick=()=>openOnCallEditor(b.dataset.editOncall,b.dataset.shift||'',b.dataset.slot||''));
   }
-  function onCallDeptHtml(d,sat){const mode=d.weekendOnCallMode||'Je Schicht',displayMode=mode==='Ganzes Wochenende'?'Samstag':mode;let rows=[];if(mode==='Ganzes Wochenende')rows=[{label:'Samstag',shift:'',slot:'',required:Math.max(1,d.wholeWeekendOnCallRequired||1)}];else if(mode==='2 × 10 Stunden')rows=['06:00–16:00','16:00–02:00'].map(slot=>({label:slot,shift:'',slot,required:1}));else rows=(d.requirements||[]).filter(r=>r.weekendOnCallRequired>0).map(r=>({label:r.shift,shift:r.shift,slot:'',required:r.weekendOnCallRequired}));return `<div class="card" style="margin-top:16px"><div class="section-head" style="margin:0 0 10px"><div><h3>${esc(d.name)}</h3><div class="muted">Modell: ${esc(displayMode)}</div></div></div>${rows.map(r=>{const ass=state.doc.assignments.filter(a=>a.departmentID===d.id&&a.kind==='Bereitschaft'&&dayKey(appleDecode(a.date))===dayKey(sat)&&(a.onCallShift||'')===r.shift&&(a.onCallSlot||'')===r.slot);const names=ass.map(a=>employeeById(a.employeeID)?.name).filter(Boolean);return `<div class="list-row"><div class="main-info"><strong>${esc(r.label)}</strong><span>${names.length?esc(names.join(', ')):'Niemand eingeplant'}</span></div><div class="row-actions"><span class="tag ${names.length>=r.required?'green':'red'}">${names.length}/${r.required}</span><button class="secondary small" data-edit-oncall="${d.id}" data-shift="${esc(r.shift)}" data-slot="${esc(r.slot)}">Bearbeiten</button></div></div>`}).join('')}</div>`}
+  function onCallDeptHtml(d,sat){const mode=d.weekendOnCallMode||'Je Schicht',displayMode=mode==='Ganzes Wochenende'?'Samstag':mode;let rows=[];if(mode==='Ganzes Wochenende'||mode==='Samstag')rows=[{label:'Samstag',shift:'',slot:'',required:Math.max(1,d.wholeWeekendOnCallRequired||1)}];else if(mode==='2 × 10 Stunden')rows=['06:00–16:00','16:00–02:00'].map(slot=>({label:slot,shift:'',slot,required:1}));else rows=(d.requirements||[]).filter(r=>r.weekendOnCallRequired>0).map(r=>({label:r.shift,shift:r.shift,slot:'',required:r.weekendOnCallRequired}));return `<div class="card" style="margin-top:16px"><div class="section-head" style="margin:0 0 10px"><div><h3>${esc(d.name)}</h3><div class="muted">Modell: ${esc(displayMode)}</div></div></div>${rows.map(r=>{const ass=state.doc.assignments.filter(a=>a.departmentID===d.id&&a.kind==='Bereitschaft'&&dayKey(appleDecode(a.date))===dayKey(sat)&&(a.onCallShift||'')===r.shift&&(a.onCallSlot||'')===r.slot);const names=ass.map(a=>employeeById(a.employeeID)?.name).filter(Boolean);return `<div class="list-row"><div class="main-info"><strong>${esc(r.label)}</strong><span>${names.length?esc(names.join(', ')):'Niemand eingeplant'}</span></div><div class="row-actions"><span class="tag ${names.length>=r.required?'green':'red'}">${names.length}/${r.required}</span><button class="secondary small" data-edit-oncall="${d.id}" data-shift="${esc(r.shift)}" data-slot="${esc(r.slot)}">Bearbeiten</button></div></div>`}).join('')}</div>`}
   function openOnCallEditor(deptId,shift,slot){const d=deptById(deptId),sat=state.onCallWeekend,sun=addDays(sat,1),emps=employeesForDept(deptId).filter(e=>e.canTakeWeekendOnCall!==false);const selected=new Set(state.doc.assignments.filter(a=>a.departmentID===deptId&&a.kind==='Bereitschaft'&&dayKey(appleDecode(a.date))===dayKey(sat)&&(a.onCallShift||'')===shift&&(a.onCallSlot||'')===slot).map(a=>a.employeeID));showModal(`Bereitschaft · ${d.name}`,`<form id="onCallForm" class="stack"><div class="muted">Samstag, ${fmtDate(sat)}${shift?` · ${shift}`:''}${slot?` · ${slot}`:''}</div><div class="checks" style="display:grid">${emps.map(e=>`<label class="check"><input type="checkbox" name="emp" value="${e.id}" ${selected.has(e.id)?'checked':''}>${esc(e.name)}</label>`).join('')}</div><button class="primary">Übernehmen</button></form>`);$('#onCallForm','#modalBody').onsubmit=async ev=>{ev.preventDefault();const ids=new Set(new FormData(ev.target).getAll('emp'));await saveMutation('Bereitschaft aktualisiert.',doc=>{const keys=new Set([dayKey(sat),dayKey(sun)]);doc.assignments=doc.assignments.filter(a=>!(a.departmentID===deptId&&a.kind==='Bereitschaft'&&keys.has(dayKey(appleDecode(a.date)))&&(a.onCallShift||'')===shift&&(a.onCallSlot||'')===slot));for(const id of ids)doc.assignments.push({id:uuid(),date:appleEncode(sat),employeeID:id,departmentID:deptId,kind:'Bereitschaft',onCallShift:shift||null,onCallSlot:slot||null});});closeModal();};}
 
   function renderUsers(){
@@ -310,7 +310,8 @@
       'Ausgewogen verteilen',
       'Passend zur Wochenschicht',
       'Immer aus fester Schicht',
-      'Wiederholendes Schichtmuster'
+      'Wiederholendes Schichtmuster',
+      'Bereitschaft vor Nachtschicht'
     ];
     root.innerHTML=`<div class="card">
       <div class="form-grid">
@@ -335,6 +336,7 @@
       if(rule==='Passend zur Wochenschicht')return 'Beim Modell „Je Schicht“ kommt jede Bereitschaft strikt aus derselben Wochenschicht. Ist dort niemand verfügbar, bleibt sie offen.';
       if(rule==='Immer aus fester Schicht')return 'Die Bereitschaft wird strikt mit Mitarbeitern aus der gewählten Wochenschicht besetzt.';
       if(rule==='Wiederholendes Schichtmuster')return 'Die Quellschicht folgt dem eingestellten 3-Wochen-Muster. Ist in der geforderten Schicht niemand verfügbar, bleibt die Bereitschaft offen.';
+      if(rule==='Bereitschaft vor Nachtschicht')return 'Der Mitarbeiter der Nachtschicht in der Folgewoche übernimmt automatisch den Samstag davor. Bei Abwesenheit bleibt die Bereitschaft offen.';
       return 'Bereitschaften werden möglichst gleichmäßig verteilt. Beim 2×10-h-Modell bleibt die bisherige Bevorzugung der Frühschicht erhalten.';
     };
     const syncOnCallControls=()=>{
@@ -556,7 +558,7 @@
         }
   
         }
-      if(department.weekendOnCallEnabled&&weekend.length){
+      if(department.weekendOnCallEnabled&&weekend.length&&policy.rule!=='Bereitschaft vor Nachtschicht'){
         const occ=new Set(),mode=department.weekendOnCallMode||'Je Schicht',blocks=[];
         const strictIds=targetShift=>{
           if(policy.rule==='Passend zur Wochenschicht')return targetShift?new Set(shiftThisWeek[targetShift]||[]):null;
@@ -598,6 +600,48 @@
         }
       }
     });
+    if(department.weekendOnCallEnabled&&policy.rule==='Bereitschaft vor Nachtschicht'){
+      const allYearDays=weeks.flatMap(w=>w.days).filter(d=>d.getFullYear()===year);
+      const saturdays=allYearDays.filter(d=>d.getDay()===6);
+      for(const sat of saturdays){
+        const nextMonday=addDays(sat,2),nextFriday=addDays(sat,6);
+        const nightIds=[...new Set(generated
+          .filter(a=>{
+            if(a.kind!=='Nacht')return false;
+            const d=startOfDay(appleDecode(a.date));
+            return d>=startOfDay(nextMonday)&&d<=startOfDay(nextFriday);
+          })
+          .map(a=>a.employeeID))];
+
+        const previousWorkdays=Array.from({length:5},(_,i)=>addDays(sat,-5+i));
+        const candidates=nightIds
+          .map(id=>team.find(e=>e.id===id))
+          .filter(Boolean)
+          .filter(e=>e.status==='Verfügbar'&&e.canTakeWeekendOnCall!==false&&employeeMatchesHalls(e,department))
+          .filter(e=>qualificationValid(e,sat)&&!hasAbs(e.id,sat))
+          .filter(e=>!previousWorkdays.every(d=>hasAbs(e.id,d)));
+
+        const chosen=candidates[0];
+        if(!chosen){
+          gaps.push({date:sat,kind:'Bereitschaft',reason:'noeligible'});
+          continue;
+        }
+
+        generated.push({
+          id:uuid(),
+          date:appleEncode(sat),
+          employeeID:chosen.id,
+          departmentID:deptId,
+          kind:'Bereitschaft',
+          onCallShift:null,
+          onCallSlot:null
+        });
+        weekendCount[chosen.id]++;
+        total[chosen.id]++;
+        shiftCount[chosen.id]['Bereitschaft']=(shiftCount[chosen.id]['Bereitschaft']||0)+1;
+      }
+    }
+
     return {strategy,year,departmentID:deptId,assignments:generated,gaps:gaps.length,blockedByQualification:blocked,fairnessSpread:spread(team.map(e=>total[e.id]||0)),weekendSpread:spread(team.map(e=>weekendCount[e.id]||0)),shiftChanges:changes};
   }
 
