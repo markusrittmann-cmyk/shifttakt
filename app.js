@@ -7,7 +7,7 @@
     dashboard:'Übersicht',schedule:'Schichtplan',yearplan:'Jahresplan',team:'Team',absences:'Abwesenheiten',
     oncall:'Bereitschaft',departments:'Abteilungen',users:'Benutzer & Rollen',export:'Export'
   };
-  const SHIFT_TYPES = ['Früh','Spät','Nacht'];
+  const SHIFT_TYPES = ['Früh','Versetzt','Spät','Nacht'];
   const ABSENCE_TYPES = ['Urlaub','Krank','Schulung / Lehrgang','Sonstige Abwesenheit'];
   const state = {
     accessToken:null, refreshToken:null, expiresAt:0, context:null, members:[], doc:null, revision:null, updatedAt:null,
@@ -71,7 +71,7 @@
   function lower(v){ return String(v??'').trim().toLowerCase(); }
   function roleLabel(r){ return r==='admin'?'Administrator':r==='manager'?'Führungskraft':'Facharbeiter'; }
   function currentUserId(){ try{const payload=JSON.parse(atob(state.accessToken.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));return payload.sub||null;}catch{return null;} }
-  function shiftCode(kind){ return kind==='Früh'?'F':kind==='Spät'?'S':kind==='Nacht'?'N':kind==='Bereitschaft'?'B':''; }
+  function shiftCode(kind){ return kind==='Früh'?'F':kind==='Versetzt'?'V':kind==='Spät'?'S':kind==='Nacht'?'N':kind==='Bereitschaft'?'B':''; }
   function absenceCode(type){ return type==='Urlaub'?'U':type==='Krank'?'K':type==='Schulung / Lehrgang'?'L':'A'; }
 
   function toast(msg, error=false){ const el=$('#toast'); el.textContent=msg; el.className=`toast${error?' error':''}`; clearTimeout(toast._t); toast._t=setTimeout(()=>el.classList.add('hidden'),3200); }
@@ -208,7 +208,7 @@
     root.innerHTML=`${state.printMode&&state.printPeriodLabel?`<div class="print-period-title">Schichtplan · ${esc(state.printPeriodLabel)}</div>`:''}<div class="toolbar">
       <button class="secondary" data-sched-prev>‹</button><strong>${new Intl.DateTimeFormat('de-DE',{month:'long',year:'numeric'}).format(m)}</strong><button class="secondary" data-sched-next>›</button>
       <select id="scheduleDept"><option value="all">Alle Abteilungen</option>${departments.map(d=>`<option value="${d.id}" ${dep===d.id?'selected':''}>${esc(d.name)}</option>`).join('')}</select>
-      <button class="secondary" data-sched-today>Heute</button><span class="tag"><span class="shift-pill s-F" style="width:24px;height:24px">F</span> Früh</span><span class="tag"><span class="shift-pill s-S" style="width:24px;height:24px">S</span> Spät</span><span class="tag"><span class="shift-pill s-N" style="width:24px;height:24px">N</span> Nacht</span>
+      <button class="secondary" data-sched-today>Heute</button><span class="tag"><span class="shift-pill s-F" style="width:24px;height:24px">F</span> Früh</span><span class="tag"><span class="shift-pill s-V" style="width:24px;height:24px">V</span> Versetzt</span><span class="tag"><span class="shift-pill s-S" style="width:24px;height:24px">S</span> Spät</span><span class="tag"><span class="shift-pill s-N" style="width:24px;height:24px">N</span> Nacht</span>
     </div>
     <div class="schedule-shell" style="margin-top:12px"><table class="schedule-grid"><thead><tr><th class="name">Mitarbeiter</th>${days.map(d=>`<th class="${isWeekend(d)?'weekend-col ':''}${sameDay(d,new Date())?'today-col':''}">${['So','Mo','Di','Mi','Do','Fr','Sa'][d.getDay()]}<br>${d.getDate()}</th>`).join('')}</tr></thead><tbody>
       ${groupedScheduleRows()}
@@ -235,7 +235,7 @@
     };
     showModal(`${e.name} · ${fmtDate(d)}`,`<div class="stack">
       ${ab?`<div class="warn-box">Abwesend: <strong>${esc(ab.type)}</strong>${ab.note?` · ${esc(ab.note)}`:''}</div>`:''}
-      <button class="secondary" data-set-kind="Früh">Frühschicht</button><button class="secondary" data-set-kind="Spät">Spätschicht</button><button class="secondary" data-set-kind="Nacht">Nachtschicht</button>
+      <button class="secondary" data-set-kind="Früh">Frühschicht</button><button class="secondary" data-set-kind="Versetzt">Versetzt</button><button class="secondary" data-set-kind="Spät">Spätschicht</button><button class="secondary" data-set-kind="Nacht">Nachtschicht</button>
       <button class="danger" data-clear-shift>Schichtzuweisung löschen</button>
       <div class="muted">Abwesenheiten werden im Bereich „Abwesenheiten“ gepflegt.</div>
     </div>`);
@@ -387,7 +387,7 @@
   function absenceForDoc(doc,eid,date){const d=startOfDay(date);return (doc.absences||[]).find(a=>a.employeeID===eid&&d>=startOfDay(appleDecode(a.startDate))&&d<=startOfDay(appleDecode(a.endDate)));}
   function weeksInYear(year){const map=new Map();let d=new Date(year,0,1),end=new Date(year+1,0,1);while(d<end){const x=startOfDay(d),weekday=x.getDay(),daysFromMonday=(weekday+6)%7,monday=addDays(x,-daysFromMonday),k=dayKey(monday);if(!map.has(k))map.set(k,[]);map.get(k).push(x);d=addDays(d,1);}return [...map.entries()].sort((a,b)=>a[0].localeCompare(b[0])).map(([k,days])=>({monday:parseISODate(k),days}));}
   function buildCyclicRotationPlan(department,team){
-    const shifts=['Nacht','Spät','Früh'];
+    const shifts=['Nacht','Spät','Versetzt','Früh'];
     const planningTeam=team.filter(e=>e.status==='Verfügbar');
     const fixed=planningTeam
       .map(e=>({employee:e,allowed:[...new Set((e.allowedShifts||[]).filter(s=>shifts.includes(s)))]}))
@@ -399,8 +399,8 @@
       .sort((a,b)=>a.name.localeCompare(b.name,'de'));
 
     const req=shift=>department.requirements?.find(r=>r.shift===shift)?.requiredStaff||0;
-    const target={Früh:req('Früh'),Spät:req('Spät'),Nacht:req('Nacht')};
-    const minimum=target.Früh+target.Spät+target.Nacht;
+    const target={Früh:req('Früh'),Versetzt:req('Versetzt'),Spät:req('Spät'),Nacht:req('Nacht')};
+    const minimum=target.Früh+target.Versetzt+target.Spät+target.Nacht;
     target.Früh+=Math.max(0,planningTeam.length-minimum);
     for(const item of fixed) target[item.shift]=(target[item.shift]||0)-1;
 
@@ -411,13 +411,14 @@
     const cycle=[
       ...Array(target.Nacht||0).fill('Nacht'),
       ...Array(target.Spät||0).fill('Spät'),
+      ...Array(target.Versetzt||0).fill('Versetzt'),
       ...Array(target.Früh||0).fill('Früh')
     ];
     if(cycle.length!==rotating.length) return null;
     return {fixed,rotating,cycle};
   }
 
-  function rotationKind(e,weekIndex,team,activeKinds){const canonical=['Nacht','Spät','Früh'];const sorted=[...team].sort((a,b)=>a.name.localeCompare(b.name,'de'));const offset=Math.max(0,sorted.findIndex(x=>x.id===e.id));const raw=canonical[(weekIndex+offset)%3];if(activeKinds.has(raw))return raw;if(activeKinds.has('Früh'))return 'Früh';if(activeKinds.has('Spät'))return 'Spät';if(activeKinds.has('Nacht'))return 'Nacht';return 'Früh';}
+  function rotationKind(e,weekIndex,team,activeKinds){const canonical=['Nacht','Spät','Versetzt','Früh'];const sorted=[...team].sort((a,b)=>a.name.localeCompare(b.name,'de'));const offset=Math.max(0,sorted.findIndex(x=>x.id===e.id));const raw=canonical[(weekIndex+offset)%3];if(activeKinds.has(raw))return raw;if(activeKinds.has('Früh'))return 'Früh';if(activeKinds.has('Versetzt'))return 'Versetzt';if(activeKinds.has('Spät'))return 'Spät';if(activeKinds.has('Nacht'))return 'Nacht';return 'Früh';}
   function spread(vals){return vals.length?Math.max(...vals)-Math.min(...vals):0;}
 
   function generateYearProposal(deptId,year,strategy,onCallPolicy){
@@ -436,7 +437,7 @@
 
     weeks.forEach((week,weekIndex)=>{
       const weekdays=week.days.filter(d=>d.getDay()>=1&&d.getDay()<=5),weekend=week.days.filter(d=>d.getDay()===6);
-      const occupied=new Set(),levelSum={},levelCount={},shiftThisWeek={Früh:new Set(),Spät:new Set(),Nacht:new Set()};
+      const occupied=new Set(),levelSum={},levelCount={},shiftThisWeek={Früh:new Set(),Versetzt:new Set(),Spät:new Set(),Nacht:new Set()};
       if(cyclicPlan){
         const planned=[
           ...cyclicPlan.fixed,
@@ -452,7 +453,7 @@
 
         // Vollwochen-Abwesenheiten in Spät/Nacht aus überschüssiger Frühschicht vertreten.
         // Der Vertreter wechselt für die komplette Woche, nicht tageweise.
-        for(const targetShift of ['Nacht','Spät']){
+        for(const targetShift of ['Nacht','Spät','Versetzt']){
           const required=department.requirements?.find(r=>r.shift===targetShift)?.requiredStaff||0;
           if(required<=0)continue;
 
