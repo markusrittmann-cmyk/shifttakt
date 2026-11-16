@@ -317,11 +317,11 @@
         <label class="field">Abteilung<select id="planDept"><option value="">Abteilung wählen</option>${depts.map(d=>`<option value="${d.id}">${esc(d.name)}</option>`).join('')}</select></label>
         <label class="field">Planjahr<input id="planYear" type="number" value="${year}" min="2020" max="2100"></label>
         <label class="field full">Bereitschaftslogik<select id="planOnCallRule">${ruleOptions.map(r=>`<option value="${esc(r)}">${esc(r)}</option>`).join('')}</select></label>
-        <label class="field" id="planOnCallFixedWrap" style="display:none">Feste Quellschicht<select id="planOnCallFixed"><option>Früh</option><option>Spät</option><option>Nacht</option></select></label>
+        <label class="field" id="planOnCallFixedWrap" style="display:none">Feste Quellschicht<select id="planOnCallFixed">${SHIFT_TYPES.map(s=>`<option>${s}</option>`).join('')}</select></label>
         <div class="field full" id="planOnCallPatternWrap" style="display:none">
           <span style="font-weight:700">3-Wochen-Muster</span>
           <div class="form-grid" style="margin-top:8px">
-            ${[1,2,3].map((n,i)=>`<label class="field">Woche ${n}<select id="planOnCallPattern${i}"><option>Früh</option><option>Spät</option><option>Nacht</option></select></label>`).join('')}
+            ${[1,2,3].map((n,i)=>`<label class="field">Woche ${n}<select id="planOnCallPattern${i}">${SHIFT_TYPES.map(s=>`<option>${s}</option>`).join('')}</select></label>`).join('')}
           </div>
           <div class="muted" style="margin-top:6px">Das Muster wiederholt sich nach Woche 3 automatisch.</div>
         </div>
@@ -347,9 +347,9 @@
       const d=deptById($('#planDept',root)?.value);
       const validRule=ruleOptions.includes(d?.weekendOnCallAssignmentRule)?d.weekendOnCallAssignmentRule:'Ausgewogen verteilen';
       $('#planOnCallRule',root).value=validRule;
-      $('#planOnCallFixed',root).value=['Früh','Spät','Nacht'].includes(d?.weekendOnCallFixedShift)?d.weekendOnCallFixedShift:'Früh';
+      $('#planOnCallFixed',root).value=SHIFT_TYPES.includes(d?.weekendOnCallFixedShift)?d.weekendOnCallFixedShift:'Früh';
       const pattern=Array.isArray(d?.weekendOnCallPattern)&&d.weekendOnCallPattern.length===3?d.weekendOnCallPattern:['Früh','Spät','Nacht'];
-      pattern.forEach((v,i)=>{const el=$(`#planOnCallPattern${i}`,root);if(el)el.value=['Früh','Spät','Nacht'].includes(v)?v:['Früh','Spät','Nacht'][i];});
+      pattern.forEach((v,i)=>{const el=$(`#planOnCallPattern${i}`,root);if(el)el.value=SHIFT_TYPES.includes(v)?v:['Früh','Spät','Nacht'][i];});
       syncOnCallControls();
     };
 
